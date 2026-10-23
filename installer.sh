@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Hanwha WRN download-only installer v1.0.0-dev.6
+# Hanwha WRN download-only installer v1.0.0-dev.7
 # Usage: wget -qO- https://raw.githubusercontent.com/bbradford1/wrn-maintenance/main/installer.sh | bash
 # Downloads one SHA-256-verified script; never runs it.
 set -Eeuo pipefail
 export LC_ALL=C
 umask 077
 
-INSTALLER_VERSION='1.0.0-dev.6'
+INSTALLER_VERSION='1.0.0-dev.7'
 BASE_URL='https://raw.githubusercontent.com/bbradford1/wrn-maintenance/main'
-MODERN_SHA256='3d37308693ab50f3bd84c69db177eee13dcd348c2342aad24662b667c6910a21'
+MODERN_SHA256='c037525e2a342e8d27d146c8c868b2c3d98ec594ce2ca7a68a8a5926c61cdc46'
 LEGACY_SHA256='9f2f878669fc741f1b18cf8e0001b8128c791191a8218fad50e76350b492e8e5'
 ARCHIVE_SHA256='ac9b89cb20c4eb31a144e2bcf8d3fad13da86995ad049877f398ea36e8fe6e73'
 

@@ -2,9 +2,9 @@
 
 **Status: controlled rollout testing — October 23, 2026**
 
-- **Ubuntu 22.04 LTS:** `wrn_maintenance.sh` **1.0.0-dev.5**. Successfully applied on **two** 7 Brew production WRNs under supervision, with WAVE recording verified afterward. One WRN also passed a controlled reboot after a UUID-based archive fstab repair. **Not yet approved for unattended or fleet-wide deployment.**
+- **Ubuntu 22.04 LTS:** `wrn_maintenance.sh` **1.0.0-dev.7**. Successfully applied on **two** 7 Brew production WRNs under supervision, with WAVE recording verified afterward. One WRN also passed a controlled reboot after a UUID-based archive fstab repair. **Not yet approved for unattended or fleet-wide deployment.**
 - **Ubuntu 18.04 LTS:** `wrn_legacy.sh` **1.0.0-dev.1** is **diagnostics only**. Its maintenance/repair workflow has **not** been qualified. Do **not** use `--apply` on 18.04.
-- **Installer:** `installer.sh` **1.0.0-dev.6** detects the Ubuntu release, downloads the corresponding script to the logged-in user's `~/Downloads`, checks SHA-256 and Bash syntax, and **does not run maintenance**.
+- **Installer:** `installer.sh` **1.0.0-dev.7** detects the Ubuntu release, downloads the corresponding script to the logged-in user's `~/Downloads`, checks SHA-256 and Bash syntax, and **does not run maintenance**.
 
 > **Production safety:** This utility is intended for supervised, one-time service of WRN recorders. Always verify live recording and playback in the WAVE client after maintenance. Do not run a repair when the archive is missing, unidentified, or otherwise unhealthy; escalate instead. Keep the existing WRN-V3 workflow available until this replacement is formally accepted.
 
@@ -27,7 +27,7 @@ sha256sum wrn_maintenance.sh
 bash wrn_maintenance.sh --version
 ```
 
-Expected modern script version: `1.0.0-dev.5`.
+Expected modern script version: `1.0.0-dev.7`.
 
 Expected SHA-256:
 
@@ -180,3 +180,9 @@ This **permanently removes** matching files only from Downloads. It does not del
 - Keep the older WRN-V3 tooling available until the replacement is fully accepted. For a stable rollout, prefer an immutable version tag/commit-pinned installation source rather than relying indefinitely on changing `main`.
 
 **Support escalation:** If the archive is unavailable, WAVE is not recording, there is a disk I/O/ext4 error, or a safety guard fails, stop applying fixes and provide the preview/diagnostic reports to the responsible Hanwha support or integrator contact. Do not restart WAVE, reconfigure networking, run filesystem repairs, or reboot an inaccessible machine without an approved recovery plan.
+
+## October 23 archive recovery hardening (dev.7)
+
+Following a supervised 7 Brew WRN recovery, the Ubuntu 22.04 script now normalizes the **mounted, verified** `/mnt/sda` ext4 archive fstab entry to a persistent UUID and explicit `x-systemd.device-timeout=60s,x-systemd.mount-timeout=120s`. If existing timeouts are longer, their numeric second values are preserved. Invalid timeout formats fail closed. Normalization retains other validated options. A clean UUID entry with appropriate timeouts is left unchanged.
+
+Diagnosis reports an unmounted archive and reads retained `mnt-sda.mount`/kernel journal messages including `JBD2` recovery failure. **It never mounts, unmounts, fscks, replays a journal, or restarts WAVE.** `--apply` still requires the archive already be mounted read-write and declines disconnected-archive servers. Collect forensics and repair separately before running maintenance. For the October 20 case, journal recovery and separate mount were completed manually.

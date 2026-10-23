@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# WRN Maintenance 1.0.0-dev.5 - PRE-PRODUCTION / SUPERVISED TESTING ONLY
+# WRN Maintenance 1.0.0-dev.7 - PRE-PRODUCTION / SUPERVISED TESTING ONLY
 # Ubuntu 22.04. --diagnose and --preview are read-only; --apply performs conditional maintenance.
 # No WAVE/network restart, remount, fsck, reboot, or video cleanup.
-VERSION='1.0.0-dev.5'
+VERSION='1.0.0-dev.7'
 MODE="${1:---diagnose}"
 [[ $# -le 1 ]] || { echo 'Only one option permitted' >&2; exit 2; }
 case "$MODE" in
@@ -73,7 +73,7 @@ ARCHIVE_MOUNTED='NO'
 if findmnt -rn -M "$ARCHIVE_MOUNT" >/dev/null 2>&1; then ARCHIVE_MOUNTED='YES'; fi
 
 section 'REPORT INFORMATION'
-printf 'UTC: %s\nHostname: %s\nCollector: WRN Maintenance 1.0.0-dev.5\nOperator: %s\nMode: READ-ONLY\nArchive selected: %s\nSelection method: %s\nArchive mounted at /mnt/sda: %s\n' "$(date -u -Is)" "$HOST" "$OPERATOR" "${ARCHIVE_DEV:-UNRESOLVED}" "${ARCHIVE_MATCH:-not determined}" "$ARCHIVE_MOUNTED" >> "$REPORT"
+printf 'UTC: %s\nHostname: %s\nCollector: WRN Maintenance 1.0.0-dev.7\nOperator: %s\nMode: READ-ONLY\nArchive selected: %s\nSelection method: %s\nArchive mounted at /mnt/sda: %s\n' "$(date -u -Is)" "$HOST" "$OPERATOR" "${ARCHIVE_DEV:-UNRESOLVED}" "${ARCHIVE_MATCH:-not determined}" "$ARCHIVE_MOUNTED" >> "$REPORT"
 run 'OS, KERNEL, TIME, UPTIME' 5 bash -c 'grep -E "^(PRETTY_NAME|VERSION_ID)=" /etc/os-release; printf "Kernel: "; uname -r; printf "Local time: "; date -Is; printf "Boot: "; uptime -s; uptime -p'
 run 'OS DISK CAPACITY' 5 df -hT /
 run 'OS JOURNAL UTILIZATION (READ-ONLY)' 8 bash -c 'journalctl --disk-usage 2>&1; for p in /var/log/journal /run/log/journal; do if [[ -d "$p" ]]; then du -sh "$p" 2>&1; else echo "$p: not present"; fi; done'
@@ -99,6 +99,14 @@ run 'FSTAB DUPLICATE AND TIMEOUT AUDIT (READ-ONLY)' 5 awk '
 ' /etc/fstab
 run 'EXPECTED ARCHIVE DEVICE PRESENCE (READ-ONLY)' 5 bash -c 'for d in /dev/sda /dev/sdb /dev/sdc /dev/sdd; do if [[ -b "$d" ]]; then echo "PRESENT: $d"; else echo "ABSENT: $d"; fi; done'
 run 'SYSTEMD ARCHIVE MOUNT STATE' 5 systemctl show mnt-sda.mount -p LoadState -p ActiveState -p Result -p What -p Where -p TimeoutUSec -p ActiveEnterTimestamp
+run 'ARCHIVE FAILURE AND JOURNAL FLAGS (READ-ONLY)' 8 bash -c '
+  systemctl show mnt-sda.mount -p ActiveState -p Result -p TimeoutUSec
+  journalctl -u mnt-sda.mount -n 35 --no-pager -o short-iso 2>&1 | grep -Ei "timed out|failed|mounting|mounted|timeout" || true
+  journalctl -k -n 2500 --no-pager 2>&1 | grep -Ei "JBD2: recovery failed|EXT4-fs \(sda\): error loading journal|recovering journal" | tail -20 || true
+  if ! findmnt -rn -M /mnt/sda >/dev/null 2>&1; then
+    echo "WARNING: Archive unmounted; no fsck, journal replay, or mounting attempted. Collect forensics before repair."
+  fi
+' 
 run 'FSTAB DEVICE MATCH AND PERSISTENCE' 5 bash -c 'grep -E "^[^#].*[[:space:]]/mnt/sda[[:space:]]" /etc/fstab; if grep -Eq "^UUID=[^[:space:]]+[[:space:]]+/mnt/sda[[:space:]]+ext4[[:space:]]" /etc/fstab; then echo "PASS: archive fstab uses UUID"; else echo "WARNING: archive fstab not confirmed UUID ext4"; fi'
 if [[ -n "$ARCHIVE_DEV" ]]; then
   run 'ARCHIVE IDENTITY AND FILESYSTEM SIGNATURE' 7 bash -c 'lsblk -dn -o NAME,SIZE,FSTYPE,UUID,MODEL,SERIAL "$1"; blkid "$1"' _ "$ARCHIVE_DEV"
@@ -321,7 +329,7 @@ if [[ "$OPERATOR" != root ]]; then
   chown "$OPERATOR" "$REPORT" 2>/dev/null || echo "WARNING: report ownership could not be changed: $REPORT" >&2
 fi
 chmod 640 "$REPORT"
-printf '\n========== WRN MAINTENANCE 1.0.0-dev.5 | DIAGNOSTICS ========\n'
+printf '\n========== WRN MAINTENANCE 1.0.0-dev.7 | DIAGNOSTICS ========\n'
 printf 'Host: %s\nReport: %s\n' "$HOST" "$REPORT"
 printf 'OS: '; df -h / | awk 'NR==2 {print $5 " used; " $4 " free"}'
 printf 'Archive: %s (%s)\n' "$ARCHIVE_MOUNTED" "${ARCHIVE_DEV:-UNRESOLVED}"
@@ -337,7 +345,7 @@ maintenance_log_setup() {
   local who="${SUDO_USER:-wave}" home
   home="$(getent passwd "$who" | cut -d: -f6)"
   [[ -n "$home" && -d "$home/Downloads" ]] || { echo 'STOP: Downloads directory unavailable' >&2; return 1; }
-  WRN_LOG="$home/Downloads/WRN-Maintenance_$(hostname -s)_$(date -u +%Y%m%dT%H%M%SZ)_dev5.txt"
+  WRN_LOG="$home/Downloads/WRN-Maintenance_$(hostname -s)_$(date -u +%Y%m%dT%H%M%SZ)_dev7.txt"
   touch "$WRN_LOG" || return 1
   chmod 640 "$WRN_LOG" || return 1
   if [[ "$who" != root ]]; then
@@ -418,15 +426,33 @@ fstab_kb() {
   [[ "$opts" =~ ^[a-zA-Z0-9._,=-]+$ ]] || { echo 'STOP: archive mount options unexpected; requires review'; return 1; }
   [[ "${dump:-0}" =~ ^[0-9]+$ && "${pass:-0}" =~ ^[0-9]+$ ]] || { echo 'STOP: fstab trailing fields malformed'; return 1; }
   [[ "$opts" == *nofail* ]] || echo 'Will add nofail to archive entry'
-  # Preserve a valid timeout >=30 if already in place, otherwise default to 30 seconds.
-  local to
-  to="$(printf '%s' "$opts" | grep -oE 'x-systemd.device-timeout=[0-9]+' | head -1 | cut -d= -f2)"
-  [[ "$to" =~ ^[0-9]+$ ]] || to=0
-  if (( to < 30 )); then to=30; fi
-  local newopts
-  newopts="$(printf '%s' "$opts" | sed -E 's/(^|,)x-systemd\.device-timeout=[^,]+//g; s/(^|,)nofail(,|$)/\1/g; s/^,+//;s/,+$//;s/,,+/,/g')"
-  [[ -n "$newopts" ]] || newopts=defaults
-  newopts="$newopts,nofail,x-systemd.device-timeout=$to"
+  # Explicit mount-operation timeout is required: device timeout alone does not
+  # protect slow ext4 journal replay. Preserve any longer existing timeouts.
+  # Refuse unknown/ambiguous timeout syntax instead of silently overwriting it.
+  local opt device_timeout=60 mount_timeout=120 value
+  local -a options=() retained=()
+  IFS=',' read -r -a options <<< "$opts"
+  for opt in "${options[@]}"; do
+    case "$opt" in
+      x-systemd.device-timeout=*)
+        value="${opt#*=}"; [[ "$value" =~ ^[0-9]+s?$ ]] || { echo "STOP: unsupported device timeout: $value"; return 1; }
+        value="${value%s}"; (( value > device_timeout )) && device_timeout="$value"
+        ;;
+      x-systemd.mount-timeout=*)
+        value="${opt#*=}"; [[ "$value" =~ ^[0-9]+s?$ ]] || { echo "STOP: unsupported mount timeout: $value"; return 1; }
+        value="${value%s}"; (( value > mount_timeout )) && mount_timeout="$value"
+        ;;
+      nofail) ;;
+      *) retained+=("$opt") ;;
+    esac
+  done
+  local newopts joined=''
+  for opt in "${retained[@]}"; do
+    if [[ -n "$joined" ]]; then joined+=","; fi
+    joined+="$opt"
+  done
+  [[ -n "$joined" ]] || joined=defaults
+  newopts="$joined,nofail,x-systemd.device-timeout=${device_timeout}s,x-systemd.mount-timeout=${mount_timeout}s"
   local target="UUID=$uuid /mnt/sda ext4 $newopts ${dump:-0} ${pass:-0}"
   echo "Current: $original"
   echo "Proposed: $target"
@@ -438,7 +464,7 @@ fstab_kb() {
     fi
   done
   [[ "$original" != "$target" ]] || { echo 'KB archive entry already normalized; no edit needed'; return 0; }
-  backup="/etc/fstab.wrn-dev5.$(date -u +%Y%m%dT%H%M%SZ).bak"
+  backup="/etc/fstab.wrn-dev7.$(date -u +%Y%m%dT%H%M%SZ).bak"
   draft="$(mktemp /etc/.fstab.wrn.XXXXXXXX)" || return 1
   cp -a /etc/fstab "$backup" || { rm -f "$draft"; return 1; }
   # Exact line replacement, no global substitution.
@@ -536,7 +562,7 @@ run_preview() {
   local who="${SUDO_USER:-wave}" home out current source fs uuid entries oldtype opts oldspec
   home="$(getent passwd "$who" | cut -d: -f6)"
   [[ -n "$home" && -d "$home/Downloads" ]] || { echo 'STOP: Downloads not found'; return 1; }
-  out="$home/Downloads/WRN-KB-Repair-Preview_$(hostname -s)_$(date -u +%Y%m%dT%H%M%SZ)_dev5.txt"
+  out="$home/Downloads/WRN-KB-Repair-Preview_$(hostname -s)_$(date -u +%Y%m%dT%H%M%SZ)_dev7.txt"
   ( umask 077
     {
       echo "=== WRN MAINTENANCE $VERSION / READ-ONLY REPAIR PLAN ==="
@@ -569,10 +595,16 @@ run_preview() {
       if [[ -b "$source" ]]; then uuid="$(blkid -s UUID -o value "$source" 2>/dev/null || :)"; fi
       entries="$(awk '$1 !~ /^#/ && $2=="/mnt/sda" {n++} END {print n+0}' /etc/fstab)"
       echo "Mounted source: ${source:-NONE}; filesystem: ${fs:-NONE}; UUID: ${uuid:-NONE}; fstab entries: $entries"
+      if [[ -z "$source" ]]; then echo 'BLOCKED: archive not mounted; manual journal/mount investigation required (never repaired by maintenance)'; fi
       awk '$1 !~ /^#/ && $2=="/mnt/sda" {print "CURRENT:", $0}' /etc/fstab
+      opts="$(awk '$1 !~ /^#/ && $2=="/mnt/sda" {print $4; exit}' /etc/fstab)"
       if [[ "$entries" == 1 && "$fs" == ext4 && "$uuid" =~ ^[a-fA-F0-9-]{36}$ ]]; then
         if awk -v u="UUID=$uuid" '$1==u && $2=="/mnt/sda" && $3=="ext4" {ok=1} END {exit !ok}' /etc/fstab; then
-          echo "SKIP: archive already has a UUID-based ext4 fstab entry"
+          if [[ "$opts" == *"x-systemd.device-timeout="* && "$opts" == *"x-systemd.mount-timeout="* ]]; then
+            echo "REVIEW: UUID present; apply will preserve or raise device timeout to >=60s and mount-operation timeout to >=120s"
+          else
+            echo "CANDIDATE: UUID present but missing one/both explicit timeouts (60s device, 120s mount)"
+          fi
         else
           echo "CANDIDATE: normalize to UUID=$uuid while preserving safe options and timeout"
         fi
@@ -614,7 +646,10 @@ final_kb_summary() {
   entry="$(awk '$1 !~ /^#/ && $2=="/mnt/sda" {print; exit}' /etc/fstab)"
   count="$(awk '$1 !~ /^#/ && $2=="/mnt/sda" {n++} END {print n+0}' /etc/fstab)"
   if [[ "$count" == 1 && "$fs" == ext4 && -n "$uuid" && "$entry" == "UUID=$uuid "* ]] && [[ "$(findmnt -rn -M /mnt/sda -o OPTIONS)" =~ (^|,)rw(,|$) ]]; then
-    echo 'PASS KB2: mounted rw ext4 archive matches persistent UUID fstab entry'
+    if [[ "$entry" != *"x-systemd.device-timeout="* || "$entry" != *"x-systemd.mount-timeout="* ]]; then
+      echo 'FAIL KB2: explicit archive timeouts missing'; return 1
+    fi
+    echo 'PASS KB2: mounted rw ext4 archive matches persistent UUID fstab entry and explicit timeouts' 
   else
     echo 'FAIL KB2: mounted archive and fstab mismatch'; return 1
   fi
