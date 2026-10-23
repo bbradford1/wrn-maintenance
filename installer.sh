@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
-# Hanwha WRN download-only installer v1.0.0-dev.5
+# Hanwha WRN download-only installer v1.0.0-dev.6
 # Usage: wget -qO- https://raw.githubusercontent.com/bbradford1/wrn-maintenance/main/installer.sh | bash
 # Downloads one SHA-256-verified script; never runs it.
 set -Eeuo pipefail
 export LC_ALL=C
 umask 077
 
-INSTALLER_VERSION='1.0.0-dev.5'
+INSTALLER_VERSION='1.0.0-dev.6'
 BASE_URL='https://raw.githubusercontent.com/bbradford1/wrn-maintenance/main'
 MODERN_SHA256='3d37308693ab50f3bd84c69db177eee13dcd348c2342aad24662b667c6910a21'
 LEGACY_SHA256='9f2f878669fc741f1b18cf8e0001b8128c791191a8218fad50e76350b492e8e5'
+ARCHIVE_SHA256='ac9b89cb20c4eb31a144e2bcf8d3fad13da86995ad049877f398ea36e8fe6e73'
 
 fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
@@ -75,3 +76,27 @@ else
   printf 'Ubuntu 18.04 diagnostics-only build: --diagnose only. Do NOT use --apply.\n'
 fi
 printf 'Commands: cd ~/Downloads && sudo bash %s --diagnose\n' "$FILENAME"
+
+# Optional cleanup utility is downloaded for both supported Ubuntu releases.
+# It is NEVER executed by this installer. The --delete flag permanently removes recordings.
+ARCHIVE_TMP="$(mktemp "$TARGET_DIR/.wrn-archive.XXXXXXXX")" || fail 'Cannot stage archive utility.'
+archive_cleanup_tmp() { rm -f -- "$ARCHIVE_TMP"; }
+trap 'cleanup; archive_cleanup_tmp' EXIT
+if [[ "$DOWNLOADER" == wget ]]; then
+  wget -q --https-only --timeout=20 --tries=2 -O "$ARCHIVE_TMP" "$BASE_URL/wrn_os_archive_cleanup.sh" \
+    || fail 'Archive utility download failed; maintenance script download was already verified.'
+else
+  curl --fail --location --silent --show-error --connect-timeout 10 --max-time 90 \
+    --proto '=https' --proto-redir '=https' --output "$ARCHIVE_TMP" "$BASE_URL/wrn_os_archive_cleanup.sh" \
+    || fail 'Archive utility download failed; maintenance script download was already verified.'
+fi
+[[ -s "$ARCHIVE_TMP" ]] || fail 'Archive utility download is empty.'
+IFS=' ' read -r ARCHIVE_ACTUAL_SHA _ < <(sha256sum "$ARCHIVE_TMP")
+[[ "$ARCHIVE_ACTUAL_SHA" == "$ARCHIVE_SHA256" ]] || fail 'Archive utility checksum mismatch; refusing file.'
+bash -n "$ARCHIVE_TMP" || fail 'Archive utility Bash syntax check failed.'
+[[ "$(head -n 1 "$ARCHIVE_TMP")" == '#!/usr/bin/env bash' ]] || fail 'Archive utility file header unexpected.'
+if grep -q $'\r' "$ARCHIVE_TMP"; then fail 'Archive utility CRLF detected.'; fi
+chmod 0644 "$ARCHIVE_TMP"
+mv -f -- "$ARCHIVE_TMP" "$TARGET_DIR/wrn_os_archive_cleanup.sh" || fail 'Cannot publish archive utility.'
+printf '\nARCHIVE UTILITY VERIFIED: %s\nSHA-256: %s\n' "$TARGET_DIR/wrn_os_archive_cleanup.sh" "$ARCHIVE_ACTUAL_SHA"
+printf 'Archive utility is DRY RUN by default. --delete permanently destroys the listed OS-drive recordings.\n'
