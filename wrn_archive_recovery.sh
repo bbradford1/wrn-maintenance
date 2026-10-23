@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# WRN Archive Recovery v1.0 - supervised Ubuntu 22.04 / ext4 recovery
+# WRN Archive Recovery v1.1 - supervised Ubuntu 22.04 / ext4 recovery
 # Standalone; never restarts WAVE, reboots, cleans recordings, or repairs automatically.
 set -Eeuo pipefail
 umask 022
@@ -21,9 +21,9 @@ exec > >(tee -a "$REPORT") 2>&1
 log(){ printf '\n=== %s ===\n' "$*"; }
 stop(){ echo "STOP: $*"; echo "Report: $REPORT"; exit 1; }
 trap 'rc=$?; if ((rc)); then echo "Recovery utility exited with status $rc. See $REPORT"; fi' EXIT
-log 'WRN ARCHIVE RECOVERY v1.0'
+log 'WRN ARCHIVE RECOVERY v1.1'
 echo "Mode: $MODE | $(date -Is) | host $(hostname) | Report: $REPORT"
-echo 'No WAVE restarts, reboot, recording removal, or automatic mount attempt in inspect mode.'
+echo 'No WAVE restarts, reboots, or recording removal. Inspect mode makes no filesystem changes.'
 MNT=/mnt/sda
 DEV=/dev/sda
 [[ -b "$DEV" ]] || stop "$DEV missing. Do not attempt filesystem recovery; inspect hardware first."
@@ -89,10 +89,17 @@ read -r -p 'Type RECOVER to authorize ext4 journal replay and archive mount: ' A
 [[ "$AUTH" == RECOVER ]] || stop 'User did not authorize recovery.'
 log 'JOURNAL RECOVERY (MUTATING /dev/sda)'
 command -v e2fsck >/dev/null || stop 'e2fsck missing'
+command -v script >/dev/null || stop 'util-linux script (pseudo-terminal) missing; no repair attempted.'
 # Reverify nothing mounted immediately before write.
 [[ -z "$(findmnt -n -S "$DEV" -o TARGET 2>/dev/null || true)" ]] || stop 'Device mounted during preflight; abort.'
+# The outer report capture (tee/process substitution) is not a real terminal.
+# e2fsck can refuse the repair with "need terminal for interactive repairs".
+# Run journal-only e2fsck inside a dedicated pseudo-terminal, preserving interactive
+# prompts and streaming the child's actual output to the existing report via tee.
+# `script -e` propagates e2fsck's exit status; /dev/null prevents a second log.
+# DEV is fixed to /dev/sda after strict identity/mount checks above.
 set +e
-e2fsck -E journal_only "$DEV"
+script -q -e -c 'e2fsck -E journal_only /dev/sda' /dev/null
 RC=$?
 set -e
 # e2fsck exit bits: 1 corrected, 2 reboot needed; all others treated as failure.
