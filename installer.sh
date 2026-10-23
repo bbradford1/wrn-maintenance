@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Hanwha WRN download-only installer v1.0.0-dev.1
+# Hanwha WRN download-only installer v1.0.0-dev.5
 # Usage: wget -qO- https://raw.githubusercontent.com/bbradford1/wrn-maintenance/main/installer.sh | bash
-# Downloads one verified, diagnostics-only script; never runs it.
+# Downloads one SHA-256-verified script; never runs it.
 set -Eeuo pipefail
 export LC_ALL=C
 umask 077
 
-INSTALLER_VERSION='1.0.0-dev.1'
+INSTALLER_VERSION='1.0.0-dev.5'
 BASE_URL='https://raw.githubusercontent.com/bbradford1/wrn-maintenance/main'
-MODERN_SHA256='b5652b84789923561f43f0efb3362fc48756219859f7aab6d86a1015589855d7'
+MODERN_SHA256='3d37308693ab50f3bd84c69db177eee13dcd348c2342aad24662b667c6910a21'
 LEGACY_SHA256='9f2f878669fc741f1b18cf8e0001b8128c791191a8218fad50e76350b492e8e5'
 
 fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
@@ -47,7 +47,7 @@ trap cleanup EXIT
 
 printf 'WRN installer %s\nOS: %s\nDestination: %s\nFile: %s\n' \
   "$INSTALLER_VERSION" "${PRETTY_NAME:-Ubuntu}" "$TARGET_DIR" "$FILENAME"
-printf 'Downloading approved diagnostics-only build...\n'
+printf 'Downloading verified development build (not fleet-approved)...\n'
 if [[ "$DOWNLOADER" == wget ]]; then
   wget -q --https-only --timeout=20 --tries=2 -O "$TMPFILE" "$BASE_URL/$FILENAME" \
     || fail 'Download failed; existing file was not changed.'
@@ -67,6 +67,11 @@ if grep -q $'\r' "$TMPFILE"; then fail 'Windows CR line endings detected; downlo
 chmod 0644 "$TMPFILE"
 mv -f -- "$TMPFILE" "$TARGET_DIR/$FILENAME" || fail 'Could not publish validated script.'
 printf '\nDOWNLOAD VERIFIED: %s\nSHA-256: %s\n' "$TARGET_DIR/$FILENAME" "$ACTUAL_SHA256"
-printf '\nThis is a DIAGNOSTIC-ONLY development build. No maintenance was executed.\n'
-printf 'Do not run on production WRNs until qualified.\n'
-printf '\nWhen approved for testing, technician commands:\n  cd ~/Downloads\n  sudo bash %s --diagnose\n' "$FILENAME"
+printf '\nDownload only. Nothing was executed.\n'
+if [[ "$FILENAME" == 'wrn_maintenance.sh' ]]; then
+  printf 'Ubuntu 22.04 supervised-test build: --diagnose, --preview, --apply.\n'
+  printf 'Run --preview and review results before supervised --apply.\n'
+else
+  printf 'Ubuntu 18.04 diagnostics-only build: --diagnose only. Do NOT use --apply.\n'
+fi
+printf 'Commands: cd ~/Downloads && sudo bash %s --diagnose\n' "$FILENAME"

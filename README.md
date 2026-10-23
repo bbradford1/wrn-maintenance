@@ -1,94 +1,54 @@
-# Hanwha WRN Maintenance
+# Hanwha WRN Maintenance — controlled testing
 
-**Status: DEVELOPMENT / DIAGNOSTICS ONLY — NOT PRODUCTION-QUALIFIED**  
-Current script version: `1.0.0-dev.1` (October 2026)
+**Status (2026-10-23): Ubuntu 22.04 `1.0.0-dev.5` is qualified on one 7 Brew production WRN under supervision, including a live fstab UUID repair, reboot, and successful WAVE recording/playback checks. It is NOT yet fleet-qualified. Ubuntu 18.04 `1.0.0-dev.1` is DIAGNOSTICS ONLY and not maintenance-qualified.**
 
-This repository contains tools for assessing Hanwha WRN systems, with separate scripts for Ubuntu 22.04 and legacy Ubuntu 18.04. The current scripts collect local diagnostic information; **they do not perform maintenance or repairs**.
+## Scope
 
-> **For technicians:** Do not deploy or run these development scripts on customer production WRNs until the release has been approved and tested. The instructions below describe the intended workflow for authorized testing.
+- `wrn_maintenance.sh` — Ubuntu **22.04**: `--diagnose` (default), `--preview`, `--apply`, `--version`, `--help`. The conditional `--apply` checks the Hanwha logging and archive-fstab KB topics, applies an indefinite Snap automatic-refresh hold, removes approved disabled Snap revisions, and cleans the Snap download cache. An unmounted, ambiguous, or unverified archive blocks apply. No WAVE restart, networking change, mount/unmount, filesystem repair, video deletion, or reboot is requested.
+- `wrn_legacy.sh` — Ubuntu **18.04**: `--diagnose` only. No cleanup or repair operations. **Do not pass `--apply`.**
+- `installer.sh` — checks OS version, downloads exactly one corresponding file into `~/Downloads`, verifies hardcoded SHA-256 and Bash syntax, then exits. **Never executes the downloaded script.**
 
-## 1. Download the correct script
+## Onsite technician procedure — supervised testing
 
-Log in to the WRN desktop as the normal user (not root), open a terminal, and run:
+Log in as the ordinary WRN desktop user (usually `wave`) and run:
 
 ```bash
 wget -qO- https://raw.githubusercontent.com/bbradford1/wrn-maintenance/main/installer.sh | bash
 ```
 
-The installer detects the Ubuntu release and downloads **one script** into `~/Downloads`:
+**Do not run the one-liner until all four files have been committed to `main` with matching hashes.** The installer does not change the WRN itself, but an incomplete repository update will lead to checksum rejection.
 
-| Ubuntu version | File downloaded |
-| --- | --- |
-| 22.04 | `wrn_maintenance.sh` |
-| 18.04 | `wrn_legacy.sh` |
-| Other | Unsupported; no script downloaded |
-
-The installer verifies the downloaded script against an embedded SHA-256 checksum, checks Bash syntax, and rejects CRLF line endings. It never runs the downloaded script. **Check for the `DOWNLOAD VERIFIED` message before proceeding**; a pipeline alone may not reliably signal a failed download.
-
-## 2. Run diagnostics (authorized test systems only)
+On Ubuntu 22.04:
 
 ```bash
 cd ~/Downloads
-sudo bash wrn_maintenance.sh --diagnose
+bash -n wrn_maintenance.sh
+sha256sum wrn_maintenance.sh
+sudo bash wrn_maintenance.sh --preview
+# Review WRN-KB-Repair-Preview_*.txt before continuing.
+# Only on an explicitly approved supervised test machine:
+sudo bash wrn_maintenance.sh --apply
 ```
 
-For an Ubuntu 18.04 legacy WRN, use:
+On Ubuntu 18.04 (diagnostics only):
 
 ```bash
 cd ~/Downloads
 sudo bash wrn_legacy.sh --diagnose
 ```
 
-To view the version without running diagnostics:
+Diagnostics, previews, and maintenance transcripts are saved in the invoking operator's Downloads folder. Use Cockpit to download reports; if the browser rejects direct downloads, bundle reports as a `.tar.gz` file. Reports may contain device identifiers and sensitive customer information; **never put WRN reports in this public repository.**
 
-```bash
-bash wrn_maintenance.sh --version
-# Or on an Ubuntu 18.04 WRN:
-bash wrn_legacy.sh --version
-```
+## KB coverage and safety boundaries
 
-Running `sudo bash wrn_maintenance.sh` or `sudo bash wrn_legacy.sh` without arguments also selects diagnostics in this development release. **There is no enabled `--apply` mode.**
+**Logging KB:** checks rsyslog syntax/activity, parses logrotate configuration, conditionally invokes existing logrotate rules when approved logs exceed 100 MiB, and vacuums archived journals conservatively. An invalid rsyslog/logrotate configuration blocks apply instead of auto-rewriting it. The legacy KB's recursive `/etc` ownership changes and indiscriminate deletions are expressly excluded. Existing logrotate warnings may remain.
 
-## 3. Retrieve the report
+**fstab KB:** requires exactly one `/mnt/sda` fstab entry and a confidently identified mounted read/write ext4 disk. Where needed, stages a UUID-based corrected entry, validates, backs up `/etc/fstab`, installs, and checks/rolls back on validation failure. Missing extra `/dev/sdb`–`/dev/sdd` fstab entries are reported, **not automatically removed**. No `mount -a`, WAVE restart, `fsck`, or automatic reboot.
 
-Each diagnostic run writes a timestamped text report to the invoking user's `~/Downloads` directory. Use the Cockpit file browser to retrieve it through the approved support workflow. Reports may include hostnames, network/device information, disk serial numbers, and WAVE event details: **do not upload reports to this public GitHub repository**.
+**Snap policy:** `snap refresh --hold=forever` intentionally blocks automatic Snap refresh, including Snap security refreshes. It does **not** prevent manual installs, non-Snap software updates or other installers. Approved disabled revision removal and cache cleaning are distinct from removing active applications; active Snaps remain installed.
 
-A WAVE service that reports `active`, or an archive that appears mounted, is **not proof that recording and playback are working**. Verify recording through the WAVE client separately.
+Check actual WAVE recording and playback manually after any apply. A successful service/mount check does not prove recording. If systemd reports other failed services, review separately; do not assume Snap failures.
 
-## Safety and scope
+## Release controls
 
-This development version:
-
-- Does **not** stop/restart the WAVE Media Server, journald, Cockpit, or network services.
-- Does **not** reboot, mount/unmount disks, edit `/etc/fstab`, run filesystem repair, or delete recordings.
-- Does **not** clean logs, purge Snap applications, change APT configuration, or install scheduled jobs.
-- May read WAVE event data, system logs, device metadata, and filesystem information to produce a local report.
-- Has **not yet been qualified on production WRNs**; diagnostics are intended for supervised testing first.
-
-If an archive is disconnected or the OS disk is full, **collect the diagnostic report before attempting a separate, approved repair**. Do not delete WAVE data merely because the OS drive is nearly full.
-
-## Files
-
-| File | Purpose |
-| --- | --- |
-| `installer.sh` | Download-only Ubuntu detection, verified script retrieval |
-| `wrn_maintenance.sh` | Ubuntu 22.04 read-only WRN assessment |
-| `wrn_legacy.sh` | Ubuntu 18.04 read-only WRN assessment |
-| `README.md` | Technician instructions and current release limitations |
-
-## Release and integrity policy
-
-The installer currently downloads development builds from `main` and validates them against SHA-256 values embedded in `installer.sh`. **Do not update either script without updating and retesting the installer's corresponding checksum.** For production releases, the distribution process should move to immutable tagged releases with reviewed hashes.
-
-To inspect a downloaded script without executing it:
-
-```bash
-bash -n ~/Downloads/wrn_maintenance.sh
-sha256sum ~/Downloads/wrn_maintenance.sh
-```
-
-Use `wrn_legacy.sh` in those commands for a legacy WRN. `bash -n` checks syntax, not operational safety.
-
-## Project status
-
-This repository is a replacement development project for the older `WRN-V3` script collection. The previous deployment should remain in place until the new package completes qualification and an approved migration is communicated. No production maintenance release has been published yet.
+Versions and SHA-256 fingerprints are pinned in `installer.sh`. When updating a distributed script, update its corresponding installer hash in the same GitHub commit. Do not promote to fleet use until an additional Ubuntu 22.04 WRN with needed corrective work is successfully tested; qualify Ubuntu 18.04 separately. Keep the older WRN-V3 scripts operational until the replacement is accepted. A later stable release should use immutable GitHub tags/commit-pinned sources.

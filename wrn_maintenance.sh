@@ -1,16 +1,22 @@
 #!/usr/bin/env bash
-# Hanwha WRN Maintenance 1.0.0-dev.1 (DIAGNOSTICS ONLY)
-# Derived from WRN diagnostic collector 1.6.1; NOT an approved production maintenance release.
-# This development build performs observations and creates a local report only.
-# No repairs, service control, mount changes, reboot, or automatic cleanup.
-# Usage: sudo bash wrn_maintenance.sh [--diagnose|--help|--version]
-VERSION='1.0.0-dev.1'
-case "${1:---diagnose}" in
-  --diagnose) [[ $# -le 1 ]] || { echo 'Unexpected arguments' >&2; exit 2; } ;;
-  --help|-h) printf 'WRN Maintenance %s (diagnostics-only development build)\nUsage: sudo bash wrn_maintenance.sh [--diagnose|--help|--version]\n' "$VERSION"; exit 0 ;;
-  --version) printf '%s\n' "$VERSION"; exit 0 ;;
-  *) echo 'Only --diagnose is enabled in this development build.' >&2; exit 2 ;;
+# WRN Maintenance 1.0.0-dev.5 - PRE-PRODUCTION / SUPERVISED TESTING ONLY
+# Ubuntu 22.04. --diagnose and --preview are read-only; --apply performs conditional maintenance.
+# No WAVE/network restart, remount, fsck, reboot, or video cleanup.
+VERSION='1.0.0-dev.5'
+MODE="${1:---diagnose}"
+[[ $# -le 1 ]] || { echo 'Only one option permitted' >&2; exit 2; }
+case "$MODE" in
+  --diagnose|--preview|--apply) ;;
+  --version) echo "$VERSION"; exit 0 ;;
+  --help|-h) printf 'WRN Maintenance %s\nUsage: sudo bash wrn_maintenance.sh [--diagnose|--preview|--apply|--version]\n--apply is for supervised pre-production validation only.\n' "$VERSION"; exit 0 ;;
+  *) echo 'Usage: --diagnose, --preview or --apply' >&2; exit 2 ;;
 esac
+[[ $EUID -eq 0 ]] || { echo 'Run with sudo' >&2; exit 2; }
+. /etc/os-release
+[[ "${ID:-}" == ubuntu && "${VERSION_ID:-}" == '22.04' ]] || { echo 'Only Ubuntu 22.04 is supported' >&2; exit 2; }
+
+# Capture diagnostics in a subshell; the original collector retains its own report handling.
+collect_diagnostics() (
 set -u
 export LC_ALL=C
 umask 077
@@ -26,7 +32,7 @@ HOST="${HOST:-unknown}"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 REPORT="$OUTDIR/WRN-Diagnostics_${HOST}_${STAMP}_$$.txt"
 : > "$REPORT" || exit 1
-chmod 600 "$REPORT"
+chmod 640 "$REPORT"
 
 section() { printf '\n===== %s =====\n' "$1" >> "$REPORT"; }
 run() {
@@ -67,10 +73,11 @@ ARCHIVE_MOUNTED='NO'
 if findmnt -rn -M "$ARCHIVE_MOUNT" >/dev/null 2>&1; then ARCHIVE_MOUNTED='YES'; fi
 
 section 'REPORT INFORMATION'
-printf 'UTC: %s\nHostname: %s\nCollector: WRN Maintenance 1.0.0-dev.1 diagnostics-only\nOperator: %s\nMode: READ-ONLY\nArchive selected: %s\nSelection method: %s\nArchive mounted at /mnt/sda: %s\n' "$(date -u -Is)" "$HOST" "$OPERATOR" "${ARCHIVE_DEV:-UNRESOLVED}" "${ARCHIVE_MATCH:-not determined}" "$ARCHIVE_MOUNTED" >> "$REPORT"
+printf 'UTC: %s\nHostname: %s\nCollector: WRN Maintenance 1.0.0-dev.5\nOperator: %s\nMode: READ-ONLY\nArchive selected: %s\nSelection method: %s\nArchive mounted at /mnt/sda: %s\n' "$(date -u -Is)" "$HOST" "$OPERATOR" "${ARCHIVE_DEV:-UNRESOLVED}" "${ARCHIVE_MATCH:-not determined}" "$ARCHIVE_MOUNTED" >> "$REPORT"
 run 'OS, KERNEL, TIME, UPTIME' 5 bash -c 'grep -E "^(PRETTY_NAME|VERSION_ID)=" /etc/os-release; printf "Kernel: "; uname -r; printf "Local time: "; date -Is; printf "Boot: "; uptime -s; uptime -p'
 run 'OS DISK CAPACITY' 5 df -hT /
 run 'OS JOURNAL UTILIZATION (READ-ONLY)' 8 bash -c 'journalctl --disk-usage 2>&1; for p in /var/log/journal /run/log/journal; do if [[ -d "$p" ]]; then du -sh "$p" 2>&1; else echo "$p: not present"; fi; done'
+run 'KB LOGGING CONFIGURATION (READ-ONLY)' 12 bash -c 'echo "-- rsyslog syntax --"; rsyslogd -N1 2>&1; echo "-- rsyslog state --"; systemctl is-active rsyslog || true; echo "-- logrotate dry run --"; logrotate -d /etc/logrotate.conf 2>&1 | grep -Ei "warning:|error:|reading config file rsyslog|considering log /var/log/(syslog|kern.log)" | tail -30; echo "-- logrotate timer --"; systemctl list-timers --all --no-pager logrotate.timer 2>&1'
 run 'LOG AND WAVE DIRECTORY CAPACITY (READ-ONLY)' 12 bash -c 'for p in /var/log /opt/hanwha/mediaserver/var/log /opt/hanwha/mediaserver/var/data; do if [[ -d "$p" ]]; then du -shx "$p" 2>&1; fi; done; find /var/log -xdev -type f -size +100M -printf "%s bytes %p\n" 2>/dev/null | sort -rn | head -15'
 run 'WAVE STORAGE PATH AND THRESHOLD CONTEXT' 8 bash -c 'df -hT / /opt/hanwha/mediaserver/var/data 2>&1; findmnt -T /opt/hanwha/mediaserver/var/data -o TARGET,SOURCE,FSTYPE,OPTIONS 2>&1'
 run 'BLOCK DEVICES / MODEL / UUID / MOUNTS' 6 lsblk -o NAME,SIZE,MODEL,SERIAL,TRAN,FSTYPE,UUID,MOUNTPOINTS,RO
@@ -92,7 +99,7 @@ run 'FSTAB DUPLICATE AND TIMEOUT AUDIT (READ-ONLY)' 5 awk '
 ' /etc/fstab
 run 'EXPECTED ARCHIVE DEVICE PRESENCE (READ-ONLY)' 5 bash -c 'for d in /dev/sda /dev/sdb /dev/sdc /dev/sdd; do if [[ -b "$d" ]]; then echo "PRESENT: $d"; else echo "ABSENT: $d"; fi; done'
 run 'SYSTEMD ARCHIVE MOUNT STATE' 5 systemctl show mnt-sda.mount -p LoadState -p ActiveState -p Result -p What -p Where -p TimeoutUSec -p ActiveEnterTimestamp
-run 'FSTAB DEVICE MATCH AND PERSISTENCE' 5 bash -c 'sed -n "/[[:space:]]\/mnt\/sda[[:space:]]/p" /etc/fstab; echo "fstab device naming may be unstable if /dev/sdX is used"'
+run 'FSTAB DEVICE MATCH AND PERSISTENCE' 5 bash -c 'grep -E "^[^#].*[[:space:]]/mnt/sda[[:space:]]" /etc/fstab; if grep -Eq "^UUID=[^[:space:]]+[[:space:]]+/mnt/sda[[:space:]]+ext4[[:space:]]" /etc/fstab; then echo "PASS: archive fstab uses UUID"; else echo "WARNING: archive fstab not confirmed UUID ext4"; fi'
 if [[ -n "$ARCHIVE_DEV" ]]; then
   run 'ARCHIVE IDENTITY AND FILESYSTEM SIGNATURE' 7 bash -c 'lsblk -dn -o NAME,SIZE,FSTYPE,UUID,MODEL,SERIAL "$1"; blkid "$1"' _ "$ARCHIVE_DEV"
   if [[ "$ARCHIVE_MOUNTED" == NO && "$ARCHIVE_FS" == ext4 ]] && ! findmnt -rn -S "$ARCHIVE_DEV" >/dev/null 2>&1; then
@@ -297,6 +304,8 @@ run 'WAVE OS FALLBACK DATA (DEPTH 2, NO DELETION)' 12 bash -c 'p=/opt/hanwha/med
 run 'OS TOP DIRECTORIES >= 1 GiB' 18 bash -c 'du -xhd1 / 2>/dev/null | awk '\''{x=$1; if (x ~ /G$/ && x+0>=1 || x ~ /T$/) print}'\'' | sort -h'
 run 'LARGE SUBDIRECTORIES (VAR, OPT, HOME; >= 1 GiB)' 22 bash -c 'for p in /var /opt /home; do du -xhd2 "$p" 2>/dev/null; done | awk '\''{x=$1; if (x ~ /G$/ && x+0>=1 || x ~ /T$/) print}'\'' | sort -h | tail -35'
 run 'SNAP INSTALLED / DISABLED REVISIONS (INFORMATION ONLY)' 6 bash -c 'if command -v snap >/dev/null; then snap list --all 2>&1 | head -35; else echo "snap unavailable"; fi'
+run 'SNAP REFRESH HOLD (READ-ONLY)' 7 bash -c 'if command -v snap >/dev/null; then snap refresh --time; else echo "SKIP: snap unavailable"; fi'
+run 'FAILED SYSTEMD UNITS (READ-ONLY)' 7 systemctl --failed --no-pager
 run 'COCKPIT PACKAGE VERSIONS / LOCAL WAVE CLIENT' 6 bash -c 'dpkg-query -W cockpit-bridge cockpit-system cockpit-ws cockpit-files 2>&1; ls -1 /home/wave/.local/share/Hanwha/client/hanwha/ 2>/dev/null || true'
 section 'INTERPRETATION AND OPERATING LIMITS'
 cat >> "$REPORT" <<'NOTES'
@@ -304,16 +313,361 @@ This is observation, not a filesystem integrity check. SMART PASSED does not rul
 Absence of matches may mean logs were vacuumed, rotated, or not persisted.
 Unexpected shutdown cannot be inferred from service-level "unclean termination" messages alone.
 Archive recording and playback must be independently confirmed in WAVE, especially on active production recorders.
-No repairs, fsck, journal replay, mount/unmount, reboot, service restart, recording cleanup, or outbound upload performed.
+Diagnostic collection does not perform repairs, fsck, journal replay, mount/unmount, reboot, service restart, recording cleanup, or outbound upload.
 Report includes sensitive device serials and identifiers; use only approved transfer paths.
 A kernel-blocked I/O may not terminate promptly even with timeout.
 NOTES
-[[ "$OPERATOR" != root ]] && chown "$OPERATOR" "$REPORT" 2>/dev/null || true
-printf '\n========== WRN MAINTENANCE 1.0.0-dev.1 | DIAGNOSTICS ONLY ========\n'
+if [[ "$OPERATOR" != root ]]; then
+  chown "$OPERATOR" "$REPORT" 2>/dev/null || echo "WARNING: report ownership could not be changed: $REPORT" >&2
+fi
+chmod 640 "$REPORT"
+printf '\n========== WRN MAINTENANCE 1.0.0-dev.5 | DIAGNOSTICS ========\n'
 printf 'Host: %s\nReport: %s\n' "$HOST" "$REPORT"
 printf 'OS: '; df -h / | awk 'NR==2 {print $5 " used; " $4 " free"}'
 printf 'Archive: %s (%s)\n' "$ARCHIVE_MOUNTED" "${ARCHIVE_DEV:-UNRESOLVED}"
 printf 'Mount: %s\n' "$(findmnt -rn -M /mnt/sda -o SOURCE,FSTYPE,OPTIONS 2>/dev/null || echo 'NOT MOUNTED')"
 printf 'WAVE service: '; systemctl is-active hanwha-mediaserver.service 2>/dev/null || true
 printf 'SMART: '; grep -m1 'SMART overall-health self-assessment test result:' "$REPORT" || echo 'See report'
-printf 'No service, mount, configuration or recording changes made. A local report was created; download through Cockpit.\n==========================================\n'
+printf 'Diagnostic report collected. This diagnostic operation did not modify services, mounts or recordings.\n==========================================\n'
+
+)
+
+# Write audit and maintenance transcript to the operator's Downloads folder.
+maintenance_log_setup() {
+  local who="${SUDO_USER:-wave}" home
+  home="$(getent passwd "$who" | cut -d: -f6)"
+  [[ -n "$home" && -d "$home/Downloads" ]] || { echo 'STOP: Downloads directory unavailable' >&2; return 1; }
+  WRN_LOG="$home/Downloads/WRN-Maintenance_$(hostname -s)_$(date -u +%Y%m%dT%H%M%SZ)_dev5.txt"
+  touch "$WRN_LOG" || return 1
+  chmod 640 "$WRN_LOG" || return 1
+  if [[ "$who" != root ]]; then
+    chown "$who" "$WRN_LOG" || { echo "STOP: cannot grant report access to $who" >&2; return 1; }
+  fi
+  exec > >(tee -a "$WRN_LOG") 2>&1
+  echo "Maintenance build=$VERSION, log=$WRN_LOG"
+}
+
+safe_state() {
+  [[ "$(systemctl is-active hanwha-mediaserver.service 2>/dev/null)" == active ]] || { echo 'STOP: WAVE not active'; return 1; }
+  [[ "$(systemctl is-active display-manager.service 2>/dev/null)" == active ]] || { echo 'STOP: desktop manager not active'; return 1; }
+  [[ "$(findmnt -rn -M /mnt/sda -o OPTIONS 2>/dev/null)" =~ (^|,)rw(,|$) ]] || { echo 'STOP: archive /mnt/sda not mounted read-write'; return 1; }
+  [[ "$(findmnt -rn -o SOURCE /)" == /dev/mmcblk* ]] || { echo 'STOP: unexpected OS drive layout'; return 1; }
+}
+
+# Logrotate KB: validate existing logging first; never replace distro configurations.
+logging_kb() {
+  echo '=== KB LOGGING AUDIT ==='
+  if ! rsyslogd -N1 2>&1; then
+    echo 'STOP: rsyslog config is invalid; leave configuration untouched for manual diagnosis'
+    return 1
+  fi
+  [[ "$(systemctl is-active rsyslog.service 2>/dev/null)" == active ]] || { echo 'STOP: rsyslog inactive'; return 1; }
+  local out
+  out="$(mktemp)" || return 1
+  if ! logrotate -d /etc/logrotate.conf > "$out" 2>&1; then
+    cat "$out"; rm -f "$out"
+    echo 'STOP: logrotate config invalid; manual repair required'; return 1
+  fi
+  echo 'Logrotate config: valid; existing rotation configuration retained.'
+  grep -Ei "warning:.*(size|daily|hourly)" "$out" || true
+  rm -f "$out"
+  # Unlike the original KB, do not recursively chown /etc or delete all large logs.
+  # Only rotate approved system logs with their already validated rules.
+  local f
+  for f in /var/log/syslog /var/log/kern.log; do
+    if [[ -f "$f" && $(stat -c %s "$f") -gt 104857600 ]]; then
+      echo "Over 100 MiB: $f; requesting normal rotation using installed rules"
+      logrotate /etc/logrotate.conf || { echo 'STOP: logrotate unsuccessful'; return 1; }
+      break
+    fi
+  done
+  journalctl --vacuum-size=1G || return 1
+  journalctl --vacuum-time=7d || return 1
+  echo 'KB logging: configuration valid; bounded rotation and journal cleanup completed.'
+}
+
+# Precisely one mounted archive and exactly one fstab target are essential prerequisites.
+# No generic mount -a, fsck, or WAVE stop/start.
+fstab_kb() {
+  echo '=== KB FSTAB AUDIT & CONDITIONAL CORRECTION ==='
+  local dev fs uuid cur_source count original draft backup errors=0 line missing_count
+  cur_source="$(findmnt -rn -M /mnt/sda -o SOURCE 2>/dev/null)"
+  [[ -n "$cur_source" && -b "$cur_source" ]] || { echo 'STOP: no confidently mounted archive device'; return 1; }
+  dev="$(readlink -f "$cur_source")"
+  fs="$(blkid -s TYPE -o value "$dev" 2>/dev/null)"
+  uuid="$(blkid -s UUID -o value "$dev" 2>/dev/null)"
+  [[ "$fs" == ext4 && "$uuid" =~ ^[a-fA-F0-9-]{36}$ ]] || { echo 'STOP: unexpected archive filesystem or UUID'; return 1; }
+  [[ "$(findmnt -rn -M /mnt/sda -o FSTYPE)" == ext4 ]] || { echo 'STOP: mounted archive not ext4'; return 1; }
+  count="$(awk '$1 !~ /^#/ && $2=="/mnt/sda" {n++} END {print n+0}' /etc/fstab)"
+  [[ "$count" == 1 ]] || { echo "STOP: expected one /mnt/sda entry, found $count"; return 1; }
+  # Fail closed if any source or archive mount point is defined more than once.
+  if awk '$1 !~ /^#/ && NF>=4 && $2 ~ /^\/mnt\/sd[a-z]$/ {m[$2]++} END {for (mp in m) if (m[mp]>1) exit 1}' /etc/fstab; then :; else
+    echo 'STOP: duplicate archive mount-point entries; manual investigation required'; return 1
+  fi
+  # Reject reused archive UUID/device in other active fstab entries.
+  if awk -v d="$dev" -v u="UUID=$uuid" '$1 !~ /^#/ && $2!="/mnt/sda" && ($1==d || $1==u) {bad=1} END {exit !bad}' /etc/fstab; then
+    echo 'STOP: archive filesystem also referenced by another mount; manual investigation required'; return 1
+  fi
+  # Only permit a stable UUID, ext4 and preserving a reasonable existing timeout.
+  original="$(awk '$1 !~ /^#/ && $2=="/mnt/sda" {print; exit}' /etc/fstab)"
+  read -r oldsource mount oldtype opts dump pass <<< "$original"
+  [[ "$oldsource" == "$cur_source" || "$oldsource" == "$dev" || "$oldsource" == "UUID=$uuid" ]] || {
+    echo 'STOP: configured source differs from mounted archive'; return 1;
+  }
+  [[ "$oldtype" == ext4 || "$oldtype" == auto ]] || { echo 'STOP: unexpected fstab type'; return 1; }
+  [[ "$opts" =~ ^[a-zA-Z0-9._,=-]+$ ]] || { echo 'STOP: archive mount options unexpected; requires review'; return 1; }
+  [[ "${dump:-0}" =~ ^[0-9]+$ && "${pass:-0}" =~ ^[0-9]+$ ]] || { echo 'STOP: fstab trailing fields malformed'; return 1; }
+  [[ "$opts" == *nofail* ]] || echo 'Will add nofail to archive entry'
+  # Preserve a valid timeout >=30 if already in place, otherwise default to 30 seconds.
+  local to
+  to="$(printf '%s' "$opts" | grep -oE 'x-systemd.device-timeout=[0-9]+' | head -1 | cut -d= -f2)"
+  [[ "$to" =~ ^[0-9]+$ ]] || to=0
+  if (( to < 30 )); then to=30; fi
+  local newopts
+  newopts="$(printf '%s' "$opts" | sed -E 's/(^|,)x-systemd\.device-timeout=[^,]+//g; s/(^|,)nofail(,|$)/\1/g; s/^,+//;s/,+$//;s/,,+/,/g')"
+  [[ -n "$newopts" ]] || newopts=defaults
+  newopts="$newopts,nofail,x-systemd.device-timeout=$to"
+  local target="UUID=$uuid /mnt/sda ext4 $newopts ${dump:-0} ${pass:-0}"
+  echo "Current: $original"
+  echo "Proposed: $target"
+  # Do not disable missing /dev/sdb..d entries without checking whether hardware is temporarily absent.
+  # These remain warnings that require technician acknowledgement/repair later.
+  for dev in /dev/sdb /dev/sdc /dev/sdd; do
+    if [[ ! -b "$dev" ]] && grep -Eq "^${dev}[[:space:]]" /etc/fstab; then
+      echo "WARNING: fstab references currently missing device $dev; not automatically disabled"
+    fi
+  done
+  [[ "$original" != "$target" ]] || { echo 'KB archive entry already normalized; no edit needed'; return 0; }
+  backup="/etc/fstab.wrn-dev5.$(date -u +%Y%m%dT%H%M%SZ).bak"
+  draft="$(mktemp /etc/.fstab.wrn.XXXXXXXX)" || return 1
+  cp -a /etc/fstab "$backup" || { rm -f "$draft"; return 1; }
+  # Exact line replacement, no global substitution.
+  awk -v replacement="$target" '$1 !~ /^#/ && $2=="/mnt/sda" {$0=replacement} {print}' /etc/fstab > "$draft"
+  chmod --reference=/etc/fstab "$draft"; chown --reference=/etc/fstab "$draft"
+  if ! findmnt --verify --tab-file "$draft" >/dev/null 2>&1; then
+    echo 'STOP: staged fstab failed verification; original remains unchanged'
+    rm -f "$draft"; return 1
+  fi
+  # Prevent replacing an fstab edited by somebody else during our checks.
+  if ! cmp -s /etc/fstab "$backup"; then
+    echo 'STOP: fstab changed during preparation; refusing replacement'
+    rm -f "$draft"; return 1
+  fi
+  if ! mv -f "$draft" /etc/fstab; then
+    echo 'STOP: could not install staged fstab'; return 1
+  fi
+  # Validate installed file and restore original from backup if validation fails.
+  if ! findmnt --verify --tab-file /etc/fstab >/dev/null 2>&1; then
+    echo 'STOP: installed fstab verification failed; restoring backup'
+    cp -a "$backup" /etc/fstab || echo 'CRITICAL: rollback copy failed!'
+    return 1
+  fi
+  echo "KB fstab correction verified; backup=$backup"
+  # Do not call daemon-reload / mount -a during a remote recording session.
+  echo 'NOTICE: Systemd fstab generator will consume the new entry on next controlled boot. No mount changed now.'
+}
+
+# Snap refresh suspension is deliberately explicit: preventing an update is not the
+# same as preventing a user or another process from manually reinstalling a snap.
+# Snap refresh --hold=forever is supported on the target snapd; verify the resulting
+# setting before deleting cached downloads or considering the Snap stage complete.
+snap_refresh_hold() {
+  echo '=== SNAP AUTOMATIC REFRESH HOLD ==='
+  if ! command -v snap >/dev/null 2>&1; then
+    echo 'SKIP: snap not installed'
+    return 0
+  fi
+  echo 'Before (snap refresh --time):'
+  snap refresh --time 2>&1 || echo 'WARNING: unable to read refresh schedule before hold'
+  echo 'APPLY: request indefinite hold of all automatic Snap refreshes'
+  if ! snap refresh --hold=forever; then
+    echo 'STOP: failed to request indefinite Snap refresh hold'; return 1
+  fi
+  echo 'After (snap refresh --time):'
+  local schedule
+  schedule="$(snap refresh --time 2>&1)" || {
+    echo "STOP: could not read Snap refresh schedule after applying hold: $schedule"; return 1;
+  }
+  echo "$schedule"
+  # snap refresh --hold and system refresh.hold are different mechanisms.
+  # Explicitly identify the indefinite hold if snapd displays it; otherwise
+  # report command success without falsely claiming a parsed confirmation.
+  if echo "$schedule" | grep -Eiq '(^|[[:space:]])hold:.*forever|(^|[[:space:]])held:.*forever'; then
+    echo 'PASS: indefinite automatic-refresh hold visible in refresh schedule'
+  else
+    echo 'NOTICE: hold command succeeded, but indefinite hold not independently parsed from this snapd output'
+  fi
+  echo 'NOTE: holding auto-refresh does not prohibit manual upgrades or reinstallations'
+}
+
+snap_cleanup() {
+  echo '=== SNAP CLEANUP / STATE AUDIT ==='
+  command -v snap >/dev/null 2>&1 || { echo 'Snap not installed; skipping'; return 0; }
+  local name rev
+  while read -r name rev; do
+    [[ -n "${name:-}" && "$rev" =~ ^[0-9]+$ ]] || continue
+    case "$name" in
+      core20|core22|core24|snapd|firefox|snap-store|snapd-desktop-integration|gnome-42-2204|gnome-46-2404|mesa-2404) ;;
+      *) echo "SKIP unapproved disabled revision: $name $rev"; continue ;;
+    esac
+    if snap list --all "$name" | awk -v r="$rev" 'NR>1 && $3==r && /disabled/ {ok=1} END {exit !ok}'; then
+      safe_state || return 1
+      echo "Removing disabled Snap: $name revision $rev"
+      snap remove "$name" --revision="$rev" --purge || return 1
+    fi
+  done < <(snap list --all | awk 'NR>1 && /disabled/ {print $1, $3}')
+  for name in firefox snap-store snapd-desktop-integration; do
+    if snap list "$name" >/dev/null 2>&1; then
+      echo "REVIEW: active $name retained; no silent active application removal"
+    fi
+  done
+  if [[ -d /var/lib/snapd/cache ]]; then
+    echo "Snap download cache before: $(du -sh /var/lib/snapd/cache 2>/dev/null || true)"
+    find /var/lib/snapd/cache -mindepth 1 -maxdepth 1 -type f -delete || return 1
+    echo "Snap download cache after: $(du -sh /var/lib/snapd/cache 2>/dev/null || true)"
+  fi
+  echo 'Failed Snap mount units, if any:'
+  systemctl list-units --all --type=mount --state=failed --no-pager | grep 'snap-' || true
+  echo 'NOTE: failed Snap units are reported, not blindly reset or deleted.'
+  echo 'IMPORTANT: a refresh hold does not prevent manual snap install, apt operations, or other installers.'
+}
+
+run_preview() {
+  local who="${SUDO_USER:-wave}" home out current source fs uuid entries oldtype opts oldspec
+  home="$(getent passwd "$who" | cut -d: -f6)"
+  [[ -n "$home" && -d "$home/Downloads" ]] || { echo 'STOP: Downloads not found'; return 1; }
+  out="$home/Downloads/WRN-KB-Repair-Preview_$(hostname -s)_$(date -u +%Y%m%dT%H%M%SZ)_dev5.txt"
+  ( umask 077
+    {
+      echo "=== WRN MAINTENANCE $VERSION / READ-ONLY REPAIR PLAN ==="
+      date -Is
+      echo '=== SAFETY GUARDS ==='
+      if safe_state; then echo 'PASS: WAVE, desktop, OS and mounted archive guards'; else echo 'BLOCKED: Apply unsafe'; fi
+      echo '=== KB1 LOGGING ==='
+      if rsyslogd -N1 2>&1 && [[ "$(systemctl is-active rsyslog.service 2>/dev/null)" == active ]]; then
+        echo 'PASS: rsyslog valid and active'; else echo 'BLOCKED: rsyslog invalid/inactive'; fi
+      local tmp
+      tmp="$(mktemp)" || exit 1
+      if logrotate -d /etc/logrotate.conf >"$tmp" 2>&1; then
+        echo 'PASS: logrotate rules parse; retain existing configuration'
+      else
+        echo 'BLOCKED: logrotate validation failed'; fi
+      grep -Ei "warning:.*(size|daily|hourly)|error:" "$tmp" | tail -25 || true
+      rm -f "$tmp"
+      for current in /var/log/syslog /var/log/kern.log; do
+        if [[ -f "$current" ]]; then
+          echo "LOG: $current $(stat -c %s "$current") bytes"
+          if [[ $(stat -c %s "$current") -gt 104857600 ]]; then echo 'WOULD: request normal logrotate execution'; else echo 'SKIP: below 100 MiB threshold'; fi
+        fi
+      done
+      journalctl --disk-usage 2>&1
+      echo 'APPLY: bounded journal vacuum (no active journal deletion)'
+      echo '=== KB2 ARCHIVE FSTAB ==='
+      source="$(findmnt -rn -M /mnt/sda -o SOURCE 2>/dev/null || :)"
+      fs="$(findmnt -rn -M /mnt/sda -o FSTYPE 2>/dev/null || :)"
+      uuid=''
+      if [[ -b "$source" ]]; then uuid="$(blkid -s UUID -o value "$source" 2>/dev/null || :)"; fi
+      entries="$(awk '$1 !~ /^#/ && $2=="/mnt/sda" {n++} END {print n+0}' /etc/fstab)"
+      echo "Mounted source: ${source:-NONE}; filesystem: ${fs:-NONE}; UUID: ${uuid:-NONE}; fstab entries: $entries"
+      awk '$1 !~ /^#/ && $2=="/mnt/sda" {print "CURRENT:", $0}' /etc/fstab
+      if [[ "$entries" == 1 && "$fs" == ext4 && "$uuid" =~ ^[a-fA-F0-9-]{36}$ ]]; then
+        if awk -v u="UUID=$uuid" '$1==u && $2=="/mnt/sda" && $3=="ext4" {ok=1} END {exit !ok}' /etc/fstab; then
+          echo "SKIP: archive already has a UUID-based ext4 fstab entry"
+        else
+          echo "CANDIDATE: normalize to UUID=$uuid while preserving safe options and timeout"
+        fi
+        echo 'NOTE: Apply also checks duplicate mount points, existing source identity and fstab staging validation'
+      else echo 'BLOCKED: archive identity or fstab entries ambiguous'; fi
+      for current in /dev/sdb /dev/sdc /dev/sdd; do
+        if [[ ! -b "$current" ]] && awk -v d="$current" '$1==d && $1 !~ /^#/ {found=1} END{exit !found}' /etc/fstab; then
+          echo "REVIEW: $current absent but referenced in fstab; no automatic removal"
+        fi
+      done
+      echo '=== SNAP ==='
+      if command -v snap >/dev/null; then
+        snap list --all | awk 'NR==1 || /disabled/'
+        echo "Current Snap refresh schedule:"; snap refresh --time 2>&1 || true
+        echo 'APPLY: request snap refresh --hold=forever; report schedule afterward; purge approved disabled revisions and clear cache'
+        echo 'NOTE: hold stops automatic Snap refresh; it does NOT prohibit new installs by other tools'
+        echo 'ACTIVE SNAP APPS RETAINED: no silent active application removal'
+      fi
+      echo '=== SYSTEMD FAILED UNITS ==='; systemctl --failed --no-pager || true
+      echo '=== END READ-ONLY PLAN; NO CHANGES ==='
+    } >"$out" 2>&1
+  )
+  chmod 640 "$out"
+  if [[ "$who" != root ]]; then chown "$who" "$out" || return 1; fi
+  echo "Repair preview saved: $out"
+}
+
+final_kb_summary() {
+  echo '=== FINAL KB / OPERATIONAL SUMMARY ==='
+  if rsyslogd -N1 >/dev/null 2>&1 && [[ "$(systemctl is-active rsyslog.service 2>/dev/null)" == active ]] && logrotate -d /etc/logrotate.conf >/dev/null 2>&1; then
+    echo 'PASS KB1: rsyslog operational and logrotate configuration parses'
+  else
+    echo 'FAIL KB1: logging verification requires investigation'; return 1
+  fi
+  local source fs uuid entry count
+  source="$(findmnt -rn -M /mnt/sda -o SOURCE 2>/dev/null)"
+  fs="$(findmnt -rn -M /mnt/sda -o FSTYPE 2>/dev/null)"
+  uuid="$(blkid -s UUID -o value "$source" 2>/dev/null)"
+  entry="$(awk '$1 !~ /^#/ && $2=="/mnt/sda" {print; exit}' /etc/fstab)"
+  count="$(awk '$1 !~ /^#/ && $2=="/mnt/sda" {n++} END {print n+0}' /etc/fstab)"
+  if [[ "$count" == 1 && "$fs" == ext4 && -n "$uuid" && "$entry" == "UUID=$uuid "* ]] && [[ "$(findmnt -rn -M /mnt/sda -o OPTIONS)" =~ (^|,)rw(,|$) ]]; then
+    echo 'PASS KB2: mounted rw ext4 archive matches persistent UUID fstab entry'
+  else
+    echo 'FAIL KB2: mounted archive and fstab mismatch'; return 1
+  fi
+  if grep -Eq '^/dev/sd[b-d][[:space:]]' /etc/fstab; then
+    echo 'WARNING KB2: additional /dev/sdb..sdd fstab entries remain; review for optional bays'
+  fi
+  if command -v snap >/dev/null 2>&1; then
+    local schedule
+    schedule="$(snap refresh --time 2>&1)" || { echo 'WARNING SNAP: refresh hold unverified'; return 1; }
+    if grep -Eiq '(^|[[:space:]])hold:.*forever|(^|[[:space:]])held:.*forever' <<< "$schedule"; then
+      echo 'PASS SNAP: automatic refresh hold is forever'
+    else
+      echo 'FAIL SNAP: indefinite refresh hold not verified'; return 1
+    fi
+  fi
+  if [[ "$(systemctl is-active hanwha-mediaserver.service 2>/dev/null)" == active ]]; then
+    echo 'PASS WAVE: service active (recording and playback require independent user check)'
+  else
+    echo 'FAIL WAVE: service not active'; return 1
+  fi
+  echo 'NOTE: logrotate size/schedule warnings may still exist, and historical alerts may remain in WAVE logs'
+}
+
+run_apply() {
+  maintenance_log_setup || return 1
+  echo "SUPERVISED TEST BUILD $VERSION; DO NOT DEPLOY TO FLEET"
+  echo '=== BEFORE ==='
+  safe_state || return 1
+  df -h /
+  collect_diagnostics || return 1
+  safe_state || return 1
+  snap_refresh_hold || return 1
+  safe_state || return 1
+  logging_kb || return 1
+  safe_state || return 1
+  fstab_kb || return 1
+  safe_state || return 1
+  snap_cleanup || return 1
+  safe_state || return 1
+  echo '=== AFTER ==='
+  echo "FINAL Snap refresh schedule:"; snap refresh --time 2>&1 || true
+  df -h /
+  collect_diagnostics || return 1
+  safe_state || return 1
+  final_kb_summary || return 1
+  echo 'COMPLETE: review reports and verify WAVE recording/playback manually'
+  echo "Maintenance log: $WRN_LOG"
+}
+
+if [[ "$MODE" == --diagnose ]]; then
+  collect_diagnostics
+elif [[ "$MODE" == --preview ]]; then
+  run_preview
+else
+  run_apply
+fi
