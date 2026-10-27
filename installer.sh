@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# Hanwha WRN download-only installer v1.0.0-dev.12-pilot
+# Hanwha WRN download-only installer v1.0.0-dev.14-pilot
 # Usage: wget -qO- https://raw.githubusercontent.com/bbradford1/wrn-maintenance/main/installer.sh | bash
 # Downloads and verifies the complete toolkit; never executes maintenance.
 set -Eeuo pipefail
 export LC_ALL=C
 umask 077
 
-INSTALLER_VERSION='1.0.0-dev.13-pilot'
+INSTALLER_VERSION='1.0.0-dev.14-pilot'
 BASE_URL='https://raw.githubusercontent.com/bbradford1/wrn-maintenance/main'
 MODERN_SHA256='845f4584f6a0ea7033f351bc7aecc6c3ab1c682fc245e131054aae5ff92db723'
 LEGACY_SHA256='9f2f878669fc741f18cf8e0001b8128c791191a8218fad50e76350b492e8e5'
 ARCHIVE_SHA256='aba17d475f22b907c961f4ee855f0106fda9d16ac317ef50b4119236796d8193'
-CLEAN_SHA256='ba9f38959b0dc452f921e548aa8400d18dee47d29da170d00378ec23e3f319b7'
+CLEAN_SHA256='bd9f38959b0dc452f921e548aa8400d18dee47d29da170d00378ec23e3f319b7'
 SPACE_SHA256='6e122ce3c6694aa0d49d8fb8411dd1e8a049f2d7303c31bfa5b2334f14b821b4'
 
 fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
