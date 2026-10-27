@@ -25,7 +25,7 @@ if (( EUID != 0 )); then echo 'ERROR: run with sudo for complete system logs and
 OPERATOR="${SUDO_USER:-root}"
 OP_HOME="$(getent passwd "$OPERATOR" | cut -d: -f6)"
 [[ -n "$OP_HOME" ]] || OP_HOME=/root
-OUTDIR="${WRN_REPORT_DIR:-$OP_HOME/Downloads}"
+OUTDIR="${WRN_REPORT_DIR:-$OP_HOME/Downloads/maintenance}"
 if [[ ! -d "$OUTDIR" ]]; then echo "ERROR: report directory not found: $OUTDIR" >&2; exit 1; fi
 HOST="$(hostname -s 2>/dev/null | tr -cd '[:alnum:]_.-' | cut -c1-48)"
 HOST="${HOST:-unknown}"
@@ -344,8 +344,8 @@ printf 'Diagnostic report collected. This diagnostic operation did not modify se
 maintenance_log_setup() {
   local who="${SUDO_USER:-wave}" home
   home="$(getent passwd "$who" | cut -d: -f6)"
-  [[ -n "$home" && -d "$home/Downloads" ]] || { echo 'STOP: Downloads directory unavailable' >&2; return 1; }
-  WRN_LOG="$home/Downloads/WRN-Maintenance_$(hostname -s)_$(date -u +%Y%m%dT%H%M%SZ)_dev7.txt"
+  [[ -n "$home" && -d "$home/Downloads/maintenance" ]] || { echo 'STOP: Downloads directory unavailable' >&2; return 1; }
+  WRN_LOG="$home/Downloads/maintenance/WRN-Maintenance_$(hostname -s)_$(date -u +%Y%m%dT%H%M%SZ)_dev7.txt"
   touch "$WRN_LOG" || return 1
   chmod 640 "$WRN_LOG" || return 1
   if [[ "$who" != root ]]; then
@@ -561,8 +561,8 @@ snap_cleanup() {
 run_preview() {
   local who="${SUDO_USER:-wave}" home out current source fs uuid entries oldtype opts oldspec
   home="$(getent passwd "$who" | cut -d: -f6)"
-  [[ -n "$home" && -d "$home/Downloads" ]] || { echo 'STOP: Downloads not found'; return 1; }
-  out="$home/Downloads/WRN-KB-Repair-Preview_$(hostname -s)_$(date -u +%Y%m%dT%H%M%SZ)_dev7.txt"
+  [[ -n "$home" && -d "$home/Downloads/maintenance" ]] || { echo 'STOP: Downloads not found'; return 1; }
+  out="$home/Downloads/maintenance/WRN-KB-Repair-Preview_$(hostname -s)_$(date -u +%Y%m%dT%H%M%SZ)_dev7.txt"
   ( umask 077
     {
       echo "=== WRN MAINTENANCE $VERSION / READ-ONLY REPAIR PLAN ==="

@@ -1,3 +1,26 @@
+## October 27 folder-pilot instructions (supersedes earlier Downloads paths)
+
+**Use `/home/wave/Downloads/maintenance/` for all toolkit files and generated reports.**
+The installer creates `~/Downloads/maintenance` for the ordinary desktop account and downloads verified scripts there. It does not execute them. Existing scripts already elsewhere in Downloads are not migrated or removed.
+
+On a test Ubuntu 22.04 WRN, after publishing the bundle together to GitHub:
+
+```bash
+wget -qO- https://raw.githubusercontent.com/bbradford1/wrn-maintenance/main/installer.sh | bash
+cd ~/Downloads/maintenance
+sudo bash wrn_maintenance.sh --diagnose
+sudo bash wrn_maintenance.sh --preview
+sudo bash wrn_remaining_os_space.sh
+```
+
+Collect `WRN-Diagnostics_*.txt`, `WRN-KB-Repair-Preview_*.txt`, and `WRN-Remaining-OS-Space_*.txt` from `~/Downloads/maintenance` via Cockpit. Only run `--apply` after reviewing the preview and confirming a safe machine. The OS archive utility now also writes a timestamped transcript into this folder when run as root.
+
+After saving required reports and verifying current recording/playback, optionally run `sudo bash wrn_downloads_cleanup.sh --preview` from the same folder and then `sudo bash wrn_downloads_cleanup.sh --delete` with interactive confirmation. Cleanup targets recognized files directly **inside** the maintenance folder only; it does not remove unrelated Downloads files or remove the folder itself.
+
+**All older examples referring to `cd ~/Downloads` and output files directly inside `/home/wave/Downloads` should be interpreted using the maintenance subfolder for this folder-pilot version.** Ubuntu 18.04 remains diagnostics-only, and the new space diagnostic remains Ubuntu 22.04 only. The fallback-recording deletion utility remains high impact; never run `--delete` without archive/recording verification and specific authorization.
+
+---
+
 # Hanwha WRN Maintenance
 
 **Status: controlled rollout testing — October 23, 2026**
@@ -32,7 +55,7 @@ Expected modern script version: `1.0.0-dev.7`.
 Expected SHA-256:
 
 ```text
-3d37308693ab50f3bd84c69db177eee13dcd348c2342aad24662b667c6910a21
+c037525e2a342e8d27d146c8c868b2c3d98ec594ce2ca7a68a8a5926c61cdc46
 ```
 
 ### 1. Inspect the read-only preview
@@ -186,3 +209,17 @@ This **permanently removes** matching files only from Downloads. It does not del
 Following a supervised 7 Brew WRN recovery, the Ubuntu 22.04 script now normalizes the **mounted, verified** `/mnt/sda` ext4 archive fstab entry to a persistent UUID and explicit `x-systemd.device-timeout=60s,x-systemd.mount-timeout=120s`. If existing timeouts are longer, their numeric second values are preserved. Invalid timeout formats fail closed. Normalization retains other validated options. A clean UUID entry with appropriate timeouts is left unchanged.
 
 Diagnosis reports an unmounted archive and reads retained `mnt-sda.mount`/kernel journal messages including `JBD2` recovery failure. **It never mounts, unmounts, fscks, replays a journal, or restarts WAVE.** `--apply` still requires the archive already be mounted read-write and declines disconnected-archive servers. Collect forensics and repair separately before running maintenance. For the October 20 case, journal recovery and separate mount were completed manually.
+
+
+## October 27 supervised OS-space diagnostic add-on
+
+The installer also downloads the checksum-verified `wrn_remaining_os_space.sh` on Ubuntu 18.04 and 22.04, but the diagnostic currently **runs only on Ubuntu 22.04**. It never executes automatically and writes a read-only OS usage report to `/home/wave/Downloads/WRN-Remaining-OS-Space_*.txt`.
+
+```bash
+cd ~/Downloads
+sudo bash wrn_remaining_os_space.sh
+```
+
+The diagnostic gathers filesystem, Snap, large-file, core metadata and WAVE database **metadata** only. Files of interest are at least 1 GiB. It does not remove content, mount storage, restart WAVE or invoke APT changes. Review the report before selecting any separate cleanup procedure. The main maintenance and recording cleanup scripts have **not** been changed in this update.
+
+After exporting needed reports and confirming recording/playback, preview temporary Downloads files using the updated cleanup helper supplied separately; do not remove diagnostic evidence still needed for an investigation.

@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
-# Hanwha WRN download-only installer v1.0.0-dev.7
+# Hanwha WRN download-only installer v1.0.0-dev.7 + OS diagnostics
 # Usage: wget -qO- https://raw.githubusercontent.com/bbradford1/wrn-maintenance/main/installer.sh | bash
 # Downloads one SHA-256-verified script; never runs it.
 set -Eeuo pipefail
 export LC_ALL=C
 umask 077
 
-INSTALLER_VERSION='1.0.0-dev.7'
+INSTALLER_VERSION='1.0.0-dev.7-folder-pilot.1'
 BASE_URL='https://raw.githubusercontent.com/bbradford1/wrn-maintenance/main'
-MODERN_SHA256='c037525e2a342e8d27d146c8c868b2c3d98ec594ce2ca7a68a8a5926c61cdc46'
-LEGACY_SHA256='9f2f878669fc741f1b18cf8e0001b8128c791191a8218fad50e76350b492e8e5'
-ARCHIVE_SHA256='ac9b89cb20c4eb31a144e2bcf8d3fad13da86995ad049877f398ea36e8fe6e73'
+MODERN_SHA256='fe9ba7da1898b0286fd31770f6c0412d50cd9dc18cc6528df5236cf462f9041d'
+LEGACY_SHA256='1dd0a5920eed0b39f6102ed351c12fbc59ebf21aeafde99ea142f2731cc423ff'
+ARCHIVE_SHA256='aba17d475f22b907c961f4ee855f0106fda9d16ac317ef50b4119236796d8193'
+CLEAN_SHA256='a879fb8a2226cb467ba7f92108b34721e7a516156dc0f21dd9c042ce51aec286'
+SPACE_SHA256='6e122ce3c6694aa0d49d8fb8411dd1e8a049f2d7303c31bfa5b2334f14b821b4'
 
 fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
@@ -39,7 +41,7 @@ fi
 
 # HOME must be the invoking user's home. Never infer /root or use arbitrary SUDO_USER.
 [[ -n "${HOME:-}" && "$HOME" == /* && -d "$HOME" ]] || fail 'Cannot identify the user home directory.'
-TARGET_DIR="$HOME/Downloads"
+TARGET_DIR="$HOME/Downloads/maintenance"
 mkdir -p -- "$TARGET_DIR" || fail "Cannot create: $TARGET_DIR"
 [[ -d "$TARGET_DIR" && -w "$TARGET_DIR" ]] || fail "Downloads folder is not writable: $TARGET_DIR"
 TMPFILE="$(mktemp "$TARGET_DIR/.wrn-installer.XXXXXXXX")" || fail 'Unable to create temporary download file.'
@@ -75,7 +77,7 @@ if [[ "$FILENAME" == 'wrn_maintenance.sh' ]]; then
 else
   printf 'Ubuntu 18.04 diagnostics-only build: --diagnose only. Do NOT use --apply.\n'
 fi
-printf 'Commands: cd ~/Downloads && sudo bash %s --diagnose\n' "$FILENAME"
+printf 'Commands: cd ~/Downloads/maintenance && sudo bash %s --diagnose\n' "$FILENAME"
 
 # Optional cleanup utility is downloaded for both supported Ubuntu releases.
 # It is NEVER executed by this installer. The --delete flag permanently removes recordings.
@@ -100,3 +102,44 @@ chmod 0644 "$ARCHIVE_TMP"
 mv -f -- "$ARCHIVE_TMP" "$TARGET_DIR/wrn_os_archive_cleanup.sh" || fail 'Cannot publish archive utility.'
 printf '\nARCHIVE UTILITY VERIFIED: %s\nSHA-256: %s\n' "$TARGET_DIR/wrn_os_archive_cleanup.sh" "$ARCHIVE_ACTUAL_SHA"
 printf 'Archive utility is DRY RUN by default. --delete permanently destroys the listed OS-drive recordings.\n'
+
+# Additional read-only OS-space diagnostics. Download only, checked against pinned hash.
+SPACE_TMP="$(mktemp "$TARGET_DIR/.wrn-space.XXXXXXXX")" || fail 'Cannot stage space diagnostic.'
+space_cleanup_tmp() { rm -f -- "$SPACE_TMP"; }
+trap 'cleanup; archive_cleanup_tmp; space_cleanup_tmp' EXIT
+if [[ "$DOWNLOADER" == wget ]]; then
+  wget -q --https-only --timeout=20 --tries=2 -O "$SPACE_TMP" "$BASE_URL/wrn_remaining_os_space.sh" \
+    || fail 'OS diagnostic download failed.'
+else
+  curl --fail --location --silent --show-error --connect-timeout 10 --max-time 90 \
+    --proto '=https' --proto-redir '=https' --output "$SPACE_TMP" "$BASE_URL/wrn_remaining_os_space.sh" \
+    || fail 'OS diagnostic download failed.'
+fi
+[[ -s "$SPACE_TMP" ]] || fail 'OS diagnostic download is empty.'
+IFS=' ' read -r SPACE_ACTUAL_SHA _ < <(sha256sum "$SPACE_TMP")
+[[ "$SPACE_ACTUAL_SHA" == "$SPACE_SHA256" ]] || fail 'OS diagnostic checksum mismatch.'
+bash -n "$SPACE_TMP" || fail 'OS diagnostic Bash syntax check failed.'
+[[ "$(head -n 1 "$SPACE_TMP")" == '#!/usr/bin/env bash' ]] || fail 'Unexpected OS diagnostic header.'
+if grep -q $'\r' "$SPACE_TMP"; then fail 'OS diagnostic CRLF detected.'; fi
+chmod 0644 "$SPACE_TMP"
+mv -f -- "$SPACE_TMP" "$TARGET_DIR/wrn_remaining_os_space.sh" || fail 'Cannot publish OS diagnostic.'
+printf '\nOS DIAGNOSTIC VERIFIED: %s\n' "$TARGET_DIR/wrn_remaining_os_space.sh"
+printf 'For read-only OS space report: cd ~/Downloads/maintenance && sudo bash wrn_remaining_os_space.sh\n'
+
+# Optional clean-up helper: downloaded but never executed.
+CLEAN_TMP="$(mktemp "$TARGET_DIR/.wrn-clean.XXXXXXXX")" || fail 'Cannot stage cleanup helper.'
+cleanup_all() { cleanup; archive_cleanup_tmp; space_cleanup_tmp; rm -f -- "$CLEAN_TMP"; }
+trap cleanup_all EXIT
+if [[ "$DOWNLOADER" == wget ]]; then
+  wget -q --https-only --timeout=20 --tries=2 -O "$CLEAN_TMP" "$BASE_URL/wrn_downloads_cleanup.sh" || fail 'Cleanup helper download failed.'
+else
+  curl --fail --location --silent --show-error --connect-timeout 10 --max-time 90 --proto '=https' --proto-redir '=https' --output "$CLEAN_TMP" "$BASE_URL/wrn_downloads_cleanup.sh" || fail 'Cleanup helper download failed.'
+fi
+[[ -s "$CLEAN_TMP" ]] || fail 'Cleanup helper download empty.'
+[[ "$(sha256sum "$CLEAN_TMP" | awk '{print $1}')" == "$CLEAN_SHA256" ]] || fail 'Cleanup helper checksum mismatch.'
+bash -n "$CLEAN_TMP" || fail 'Cleanup helper syntax error.'
+[[ "$(head -n 1 "$CLEAN_TMP")" == '#!/usr/bin/env bash' ]] || fail 'Unexpected cleanup helper header.'
+if grep -q $'\r' "$CLEAN_TMP"; then fail 'Cleanup helper CRLF rejected.'; fi
+chmod 0644 "$CLEAN_TMP"
+mv -f -- "$CLEAN_TMP" "$TARGET_DIR/wrn_downloads_cleanup.sh" || fail 'Cannot publish cleanup helper.'
+printf 'CLEANUP HELPER VERIFIED: %s\n' "$TARGET_DIR/wrn_downloads_cleanup.sh"

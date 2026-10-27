@@ -37,6 +37,15 @@
 #
 
 set -euo pipefail
+# Keep all terminal diagnostics with the other WRN reports; no WAVE data is modified by logging.
+REPORT_DIR=/home/wave/Downloads/maintenance
+if [[ "${EUID:-$(id -u)}" -eq 0 && -d "$REPORT_DIR" && ! -L "$REPORT_DIR" ]]; then
+    REPORT="$REPORT_DIR/WRN-OS-Archive-Cleanup_$(date -u +%Y%m%dT%H%M%SZ)_$$.txt"
+    touch "$REPORT"
+    chmod 644 "$REPORT"
+    exec > >(tee -a "$REPORT") 2>&1
+    echo "WRN OS archive cleanup transcript: $REPORT"
+fi
 
 
 # ============================================================

@@ -27,7 +27,7 @@ done
 OWNER="${SUDO_USER:-root}"
 OWNER_HOME="$(getent passwd "$OWNER" | awk -F: 'NR==1 {print $6}')"
 [[ -n "$OWNER_HOME" ]] || OWNER_HOME=/root
-OUTDIR="${WRN_REPORT_DIR:-$OWNER_HOME/Downloads}"
+OUTDIR="${WRN_REPORT_DIR:-$OWNER_HOME/Downloads/maintenance}"
 [[ -d "$OUTDIR" && ! -L "$OUTDIR" ]] || { echo "ERROR: report directory unavailable: $OUTDIR" >&2; exit 2; }
 HOST="$(hostname -s | tr -cd '[:alnum:]_.-' | cut -c1-48)"
 HOST="${HOST:-unknown}"
