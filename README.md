@@ -1,225 +1,90 @@
-## October 27 folder-pilot instructions (supersedes earlier Downloads paths)
-
-**Use `/home/wave/Downloads/maintenance/` for all toolkit files and generated reports.**
-The installer creates `~/Downloads/maintenance` for the ordinary desktop account and downloads verified scripts there. It does not execute them. Existing scripts already elsewhere in Downloads are not migrated or removed.
-
-On a test Ubuntu 22.04 WRN, after publishing the bundle together to GitHub:
-
-```bash
-wget -qO- https://raw.githubusercontent.com/bbradford1/wrn-maintenance/main/installer.sh | bash
-cd ~/Downloads/maintenance
-sudo bash wrn_maintenance.sh --diagnose
-sudo bash wrn_maintenance.sh --preview
-sudo bash wrn_remaining_os_space.sh
-```
-
-Collect `WRN-Diagnostics_*.txt`, `WRN-KB-Repair-Preview_*.txt`, and `WRN-Remaining-OS-Space_*.txt` from `~/Downloads/maintenance` via Cockpit. Only run `--apply` after reviewing the preview and confirming a safe machine. The OS archive utility now also writes a timestamped transcript into this folder when run as root.
-
-After saving required reports and verifying current recording/playback, optionally run `sudo bash wrn_downloads_cleanup.sh --preview` from the same folder and then `sudo bash wrn_downloads_cleanup.sh --delete` with interactive confirmation. Cleanup targets recognized files directly **inside** the maintenance folder only; it does not remove unrelated Downloads files or remove the folder itself.
-
-**All older examples referring to `cd ~/Downloads` and output files directly inside `/home/wave/Downloads` should be interpreted using the maintenance subfolder for this folder-pilot version.** Ubuntu 18.04 remains diagnostics-only, and the new space diagnostic remains Ubuntu 22.04 only. The fallback-recording deletion utility remains high impact; never run `--delete` without archive/recording verification and specific authorization.
-
----
-
 # Hanwha WRN Maintenance
 
-**Status: controlled rollout testing — October 23, 2026**
+**Status:** Supervised pilot — October 27, 2026  
+**Supported for maintenance:** Ubuntu 22.04 LTS WRN servers  
+**Current pilot:** `wrn_maintenance.sh` v1.0.0-dev.10-pilot
 
-- **Ubuntu 22.04 LTS:** `wrn_maintenance.sh` **1.0.0-dev.7**. Successfully applied on **two** 7 Brew production WRNs under supervision, with WAVE recording verified afterward. One WRN also passed a controlled reboot after a UUID-based archive fstab repair. **Not yet approved for unattended or fleet-wide deployment.**
-- **Ubuntu 18.04 LTS:** `wrn_legacy.sh` **1.0.0-dev.1** is **diagnostics only**. Its maintenance/repair workflow has **not** been qualified. Do **not** use `--apply` on 18.04.
-- **Installer:** `installer.sh` **1.0.0-dev.7** detects the Ubuntu release, downloads the corresponding script to the logged-in user's `~/Downloads`, checks SHA-256 and Bash syntax, and **does not run maintenance**.
+This toolkit helps technicians maintain Hanwha WAVE recording servers, reclaim space on the operating-system drive, and document what was done. It is intended to be simple to run while keeping recording and the local desktop working.
 
-> **Production safety:** This utility is intended for supervised, one-time service of WRN recorders. Always verify live recording and playback in the WAVE client after maintenance. Do not run a repair when the archive is missing, unidentified, or otherwise unhealthy; escalate instead. Keep the existing WRN-V3 workflow available until this replacement is formally accepted.
+> **Supervised testing only.** The combined workflow has been tested on a WRN that was already cleaned. Test the full installation and cleanup sequence on another WRN before approving wider rollout.
 
-## Quick start — Ubuntu 22.04
+## What it does
 
-Use the WRN's ordinary desktop account (normally `wave`) in Cockpit Terminal. **Do not use `sudo` for the installer.**
+- Checks the WRN's condition, including the WAVE service and recording archive.
+- Cleans up selected old logs, unused Snap revisions, and temporary files.
+- Checks the archive's startup configuration and makes only guarded, approved corrections.
+- Removes approved, unnecessary Thunderbird and LibreOffice packages and their leftover dependencies **only when safety checks allow it**.
+- Records the work and before/after OS usage in a permanent service-history file.
+- Preserves the existing automatic-update settings. **It does not install updates.**
+
+The maintenance script does **not** intentionally restart WAVE, reboot the WRN, remove recordings, or remove the Ubuntu desktop. If the system differs from the tested configuration or a safety check fails, the script should stop rather than force a change.
+
+## Technician quick start — Ubuntu 22.04
+
+Open the terminal as the normal `wave` user. **Do not use `sudo` for the installer.**
+
+**1. Download the verified maintenance script:**
 
 ```bash
 wget -qO- https://raw.githubusercontent.com/bbradford1/wrn-maintenance/main/installer.sh | bash
 ```
 
-The installer verifies its download and reports `DOWNLOAD VERIFIED`. It does not execute the downloaded file. If verification fails, **stop**; do not bypass or ignore the error.
+The installer places the script in `/home/wave/Downloads/maintenance/` and checks its integrity. It does not run maintenance automatically. If the download or verification fails, stop and report the error.
 
-Verify the downloaded maintenance script:
-
-```bash
-cd ~/Downloads
-bash -n wrn_maintenance.sh
-sha256sum wrn_maintenance.sh
-bash wrn_maintenance.sh --version
-```
-
-Expected modern script version: `1.0.0-dev.7`.
-
-Expected SHA-256:
-
-```text
-c037525e2a342e8d27d146c8c868b2c3d98ec594ce2ca7a68a8a5926c61cdc46
-```
-
-### 1. Inspect the read-only preview
+**2. Run maintenance:**
 
 ```bash
-cd ~/Downloads
-sudo bash wrn_maintenance.sh --preview
-```
-
-Retrieve the timestamped `WRN-KB-Repair-Preview_*.txt` file from Downloads using Cockpit. Review all warnings and the proposed changes. The preview does **not** perform the repair; it is not a guarantee that a later apply will succeed.
-
-**Do not apply** if WAVE/desktop/archive safety checks fail, if the archive is not mounted read/write at `/mnt/sda`, if its identity is ambiguous, or if the planned work doesn't match the machine. Escalate with the preview report.
-
-### 2. Apply only on an approved supervised WRN
-
-```bash
-cd ~/Downloads
+cd /home/wave/Downloads/maintenance
 sudo bash wrn_maintenance.sh --apply
 ```
 
-The script collects before/after diagnostics and writes a timestamped maintenance transcript in Downloads. It checks before repairing and skips already-satisfactory items where possible. **Do not reboot just to finish maintenance**; plan a reboot separately if one is needed for verification.
+The script performs its approved tasks automatically, without asking technicians to confirm each package removal. It still checks for unexpected conditions and may stop to protect the WRN.
 
-### 3. Verify the machine afterward
+**3. Verify the WRN:**
 
-In Cockpit and the WAVE client, confirm:
+Confirm that the Ubuntu desktop works, WAVE is accessible, **new video is recording**, and **recent video plays back**. Check the maintenance report for any warnings. Do not finalize if something is wrong.
 
-1. WAVE Media Server is active and the system is accessible.
-2. The archive is mounted read/write at `/mnt/sda`.
-3. **New footage is actually being recorded and recent footage plays back.** An active service alone is not proof.
-4. The maintenance log shows the expected KB results, and `snap refresh --time` reports `hold: forever` where that policy was applied.
-5. Any warnings, missing drives or failed systemd services have been reviewed rather than assumed repaired.
-
-Download the maintenance log and the before/after diagnostics before cleaning up. Treat any failed step or unexplained error as **incomplete maintenance**, even if some cleanup succeeded.
-
-## Ubuntu 18.04 — diagnostics only
-
-Run the same **non-sudo installer** command above. It downloads `wrn_legacy.sh` instead of the modern script.
+**4. Finalize the visit:**
 
 ```bash
-cd ~/Downloads
-bash -n wrn_legacy.sh
-sudo bash wrn_legacy.sh --diagnose
+sudo bash wrn_maintenance.sh --finalize
 ```
 
-Expected legacy SHA-256:
+Run this command **only after** verifying the desktop, recording, and playback. It records the technician's confirmation and removes temporary files from the maintenance folder, leaving:
 
 ```text
-9f2f878669fc741f1b18cf8e0001b8128c791191a8218fad50e76350b492e8e5
+/home/wave/Downloads/maintenance/WRN-Service-History.txt
 ```
 
-**Do not use `--apply`, or run the 22.04 maintenance script on Ubuntu 18.04.** Collect and review the diagnostics before designing and testing any legacy changes.
+This history stays on the WRN for the next service visit and includes previous visits. If a run fails, **leave its reports in place** for troubleshooting.
 
-## What the Ubuntu 22.04 maintenance covers
+## Optional: Check before making changes
 
-| Area | Checks and conditional actions | Limits |
-| --- | --- | --- |
-| **Hanwha logging/no-boot KB** | Checks rsyslog syntax and service state, parses logrotate configuration, uses existing log rotation rules for selected oversized logs (100 MiB threshold), and performs bounded archived-journal cleanup. | Does not recursively change `/etc` ownership, indiscriminately delete logs, or automatically rewrite invalid rsyslog/logrotate configuration. Existing nonfatal rotation warnings may remain. |
-| **Hanwha archive/fstab KB** | Verifies a mounted read/write ext4 recording archive and its UUID, checks `/mnt/sda` fstab entries, makes a verified UUID-based correction when needed, backs up fstab, validates the change and provides rollback safeguards. | Does not run `mount -a`, unmount/mount the archive, perform `fsck` or journal replay, or restart WAVE. Extra entries for missing `/dev/sdb`–`/dev/sdd` are flagged **without automatic removal**. |
-| **Snap cleanup and policy** | Applies `snap refresh --hold=forever`, verifies the hold, removes approved **disabled** Snap revisions and clears the Snap download cache. | Retains active Snap applications, including Firefox and Snap Store. A refresh hold stops **automatic** refreshes, not manual installs or other package managers. It also postpones automatic Snap security updates; this is an explicit maintenance policy. |
-| **Safety and reports** | Checks WAVE, desktop, OS and archive prerequisites; collects before/after diagnostics and a maintenance log. | No scripted WAVE restart, network reconfiguration, automatic reboot, filesystem repair, or recording deletion. |
-
-An archive appearing `100%` utilized while maintaining approximately 30 GB of reserved free space can be normal for the configured WAVE recording policy; do **not** treat that percentage alone as a failure. Evaluate the actual archive mount and recording behavior. An OS drive becoming full is a separate issue.
-
-
-## Optional WAVE OS-recording cleanup utility
-
-The installer also downloads a separately verified `wrn_os_archive_cleanup.sh` into `~/Downloads` on Ubuntu 22.04 and 18.04. **It never executes archive cleanup automatically**, and ordinary maintenance `--apply` never deletes recordings. The utility is dry-run only unless explicitly invoked with `--delete`.
-
-After determining that WAVE was previously recording onto the OS filesystem, and only after verifying the primary recording archive is mounted and healthy:
+For a read-only check, use:
 
 ```bash
-cd ~/Downloads
-sudo bash wrn_os_archive_cleanup.sh
+cd /home/wave/Downloads/maintenance
+sudo bash wrn_maintenance.sh --preview
 ```
 
-The dry run lists dated recording directories under `/opt/hanwha/mediaserver/var/data/<server-id>/{hi_quality,low_quality}/<camera>/<year>` that would be permanently removed. These may be the **only surviving copies** of footage from the affected period; preserve any needed footage first. If the listed files are confirmed disposable, WAVE is recording normally to `/mnt/sda`, and the operator is authorized to delete them:
+You can also use `--diagnose` to collect system information without applying maintenance.
 
-```bash
-sudo bash wrn_os_archive_cleanup.sh --delete
-```
+## Important precautions
 
-Optional `--low-only` and `--high-only` narrow the selection. The cleanup utility is the existing operational script, renamed without changing its deletion logic. It does not independently verify the archive mount or prevent deletion across unexpected nested mounts; confirm the paths and storage state manually before `--delete`. **Deletion cannot be undone.** The archive utility has not yet completed a production qualification cycle and should be operated only with direct supervision. Archive cleanup does not touch the normal mounted recording archive, server configuration, databases, or info.txt by design.
+- **Never assume an active WAVE service proves video is recording.** Verify actual footage and playback.
+- If an archive drive is disconnected, missing, or unhealthy, stop and investigate separately; routine maintenance will not repair an unmounted archive automatically.
+- Some WRNs have different installed applications. Package cleanup is guarded and may be skipped or stopped when the proposed removals differ.
+- Ubuntu automatic-update settings are **left as found**. The script does not enable updates or perform package upgrades. The Snap refresh hold is part of the existing maintenance policy.
+- Do not reboot or delete recording files just to finish routine maintenance.
 
-## Reports: where to find them
+## Other tools and older WRNs
 
-Reports are written to the invoking desktop user's **Downloads** directory, normally `/home/wave/Downloads`:
+**Ubuntu 18.04:** Not supported by the dev.10 pilot installer. The separate `wrn_legacy.sh` utility is for **diagnostics only**; do not run maintenance `--apply` on Ubuntu 18.04.
 
-- `WRN-KB-Repair-Preview_*.txt` — planned changes and warnings, read-only.
-- `WRN-Maintenance_*.txt` — apply actions, skips, failures and final summary.
-- `WRN-Diagnostics_*.txt` — detailed before/after system state.
+**OS recording cleanup:** The separate `wrn_os_archive_cleanup.sh` utility can permanently delete recordings that ended up on the OS drive. **It is not part of routine maintenance and is never run automatically.** Use it only with explicit approval after reviewing the footage and confirming the correct archive is recording.
 
-The script attempts to make generated reports accessible to the operator. Reports can include serial numbers, filesystem IDs, storage paths and customer/site information. Transfer them through approved support channels. **Never upload reports or site identifiers to this public GitHub repository.**
+## For the person updating GitHub
 
-### Cockpit shows “Forbidden” when downloading a report
+Publish matching versions of `installer.sh` and `wrn_maintenance.sh` together: the installer verifies the maintenance script's SHA-256 checksum. If the script changes, the installer checksum must be updated as well. The README may be updated independently.
 
-First refresh Cockpit Files and try downloading the file again. If the report belongs to root or is not readable, use this targeted ownership/permission repair:
-
-```bash
-sudo find /home/wave/Downloads -maxdepth 1 -type f \( -name 'WRN-Maintenance_*.txt' -o -name 'WRN-Diagnostics_*.txt' -o -name 'WRN-KB-Repair-Preview_*.txt' \) -exec chown wave:wave {} + -exec chmod 644 {} +
-```
-
-If Cockpit still refuses the direct download, make one archive of the reports (this does not alter the originals):
-
-```bash
-cd /home/wave/Downloads
-sudo tar -czf /tmp/WRN-Reports.tar.gz WRN-*.txt
-sudo chown wave:wave /tmp/WRN-Reports.tar.gz
-cp /tmp/WRN-Reports.tar.gz /home/wave/Downloads/
-```
-
-Then try downloading `WRN-Reports.tar.gz` through Cockpit. A persistent Forbidden error on the archive may indicate Cockpit configuration/session problems rather than file permissions. **Do not restart Cockpit or network services remotely just to retrieve a report**; escalate or use an approved alternate transfer method.
-
-## Common warnings and what to do
-
-| Finding | Meaning / technician action |
-| --- | --- |
-| `DOWNLOAD VERIFIED` | Installer downloaded the correct script and verified checksum/syntax. No maintenance ran. |
-| Checksum mismatch or download failure | **STOP.** Do not run an unverified file. Confirm GitHub `main` contains the matching installer and scripts, network access, and OS version; escalate if unresolved. |
-| `SKIP: archive already has a UUID-based ext4 fstab entry` | Normal: it may already be correctly configured. |
-| Missing `/dev/sdb`, `/dev/sdc`, `/dev/sdd` | Additional fstab entries reference absent devices. Script **reports** these; it does not delete them. Check the hardware/bay configuration before any separate correction. |
-| Archive not mounted, read-only, unknown UUID or duplicate `/mnt/sda` entries | **STOP / escalate.** Do not run `fsck` on a mounted archive or manually modify fstab without an approved recovery plan. |
-| `size overrides daily/hourly` in logrotate output | Configuration parses, but the specified `size` rule overrides the schedule. Review if recurring or problematic; it is not automatically rewritten. |
-| Failed `dmesg.service` or `isc-dhcp-server6.service` | Observed on test units, but **not evidence of a Snap mount problem**. Treat as separate service findings. |
-| Failed `snap-*.mount` units | Record the units and investigate; do not delete mount units, reset failures or modify Snap state indiscriminately. |
-| Snap `hold: forever` | Automatic Snap refreshes are blocked. This does **not** protect against manual reinstallation. |
-| Historical `systemStorageFull` WAVE events | May predate cleanup. Compare timestamps and current OS free space; don't assume they indicate an active failure. |
-| WAVE recording-file rename warnings around shutdown | Have been seen during controlled WRN shutdowns; check new recordings and playback after boot instead of assuming an archive defect. Escalate if errors continue while running. |
-
-## Cleanup after successful verification (optional)
-
-**Only after** you have collected needed reports and verified WAVE recording/playback, run this single command to remove just the downloaded WRN scripts (including archive cleanup) and generated WRN text reports from Downloads:
-
-```bash
-sudo find /home/wave/Downloads -maxdepth 1 -type f \( -name 'wrn_maintenance.sh' -o -name 'wrn_legacy.sh' -o -name 'wrn_os_archive_cleanup.sh' -o -name 'WRN-Diagnostics_*.txt' -o -name 'WRN-Maintenance_*.txt' -o -name 'WRN-KB-Repair-Preview_*.txt' -o -name 'WRN-Reports.tar.gz' \) -delete
-```
-
-This **permanently removes** matching files only from Downloads. It does not delete WAVE recordings or affect the archive. Do not run this command before saving reports needed for an active support case. If you used a TAR workaround, note that its temporary `/tmp/WRN-Reports.tar.gz` copy is outside this cleanup scope.
-
-## Maintainer notes / release controls
-
-- The installer has **hardcoded SHA-256 fingerprints**. Any change to any distributed `.sh` file requires updating the corresponding installer hash in the **same commit**. A README-only edit requires no installer hash change.
-- Do not publish a script change to `main` without reviewing the installer hash, Bash syntax, LF line endings and downloaded copy. The production technician must never bypass checksum rejection.
-- Continue **supervised** testing on additional Ubuntu 22.04 WRNs, including systems requiring conditional repairs. Validate Ubuntu 18.04 independently before enabling any maintenance behavior there.
-- Retain backup copies of fstab produced by maintenance and do not delete them as part of Downloads cleanup.
-- Keep the older WRN-V3 tooling available until the replacement is fully accepted. For a stable rollout, prefer an immutable version tag/commit-pinned installation source rather than relying indefinitely on changing `main`.
-
-**Support escalation:** If the archive is unavailable, WAVE is not recording, there is a disk I/O/ext4 error, or a safety guard fails, stop applying fixes and provide the preview/diagnostic reports to the responsible Hanwha support or integrator contact. Do not restart WAVE, reconfigure networking, run filesystem repairs, or reboot an inaccessible machine without an approved recovery plan.
-
-## October 23 archive recovery hardening (dev.7)
-
-Following a supervised 7 Brew WRN recovery, the Ubuntu 22.04 script now normalizes the **mounted, verified** `/mnt/sda` ext4 archive fstab entry to a persistent UUID and explicit `x-systemd.device-timeout=60s,x-systemd.mount-timeout=120s`. If existing timeouts are longer, their numeric second values are preserved. Invalid timeout formats fail closed. Normalization retains other validated options. A clean UUID entry with appropriate timeouts is left unchanged.
-
-Diagnosis reports an unmounted archive and reads retained `mnt-sda.mount`/kernel journal messages including `JBD2` recovery failure. **It never mounts, unmounts, fscks, replays a journal, or restarts WAVE.** `--apply` still requires the archive already be mounted read-write and declines disconnected-archive servers. Collect forensics and repair separately before running maintenance. For the October 20 case, journal recovery and separate mount were completed manually.
-
-
-## October 27 supervised OS-space diagnostic add-on
-
-The installer also downloads the checksum-verified `wrn_remaining_os_space.sh` on Ubuntu 18.04 and 22.04, but the diagnostic currently **runs only on Ubuntu 22.04**. It never executes automatically and writes a read-only OS usage report to `/home/wave/Downloads/WRN-Remaining-OS-Space_*.txt`.
-
-```bash
-cd ~/Downloads
-sudo bash wrn_remaining_os_space.sh
-```
-
-The diagnostic gathers filesystem, Snap, large-file, core metadata and WAVE database **metadata** only. Files of interest are at least 1 GiB. It does not remove content, mount storage, restart WAVE or invoke APT changes. Review the report before selecting any separate cleanup procedure. The main maintenance and recording cleanup scripts have **not** been changed in this update.
-
-After exporting needed reports and confirming recording/playback, preview temporary Downloads files using the updated cleanup helper supplied separately; do not remove diagnostic evidence still needed for an investigation.
+**Do not upload WRN reports, serial numbers, customer details, or service histories to this public repository.**
