@@ -2,13 +2,13 @@
 # WRN Maintenance 1.0.0-dev.10-pilot - PRE-PRODUCTION / SUPERVISED TESTING ONLY
 # Ubuntu 22.04. --diagnose and --preview are read-only; --apply performs conditional maintenance.
 # No WAVE/network restart, remount, fsck, reboot, or video cleanup.
-VERSION='1.0.0-dev.10-pilot'
+WRN_SCRIPT_VERSION='1.0.0-dev.11-pilot'
 MODE="${1:---diagnose}"
 [[ $# -le 1 ]] || { echo 'Only one option permitted' >&2; exit 2; }
 case "$MODE" in
   --diagnose|--preview|--apply|--package-preview|--tidy-preview|--tidy|--finalize) ;;
-  --version) echo "$VERSION"; exit 0 ;;
-  --help|-h) printf 'WRN Maintenance %s\nUsage: sudo bash wrn_maintenance.sh [--diagnose|--preview|--package-preview|--apply|--finalize|--version]\n--apply is for supervised pre-production validation only.\n' "$VERSION"; exit 0 ;;
+  --version) echo "$WRN_SCRIPT_VERSION"; exit 0 ;;
+  --help|-h) printf 'WRN Maintenance %s\nUsage: sudo bash wrn_maintenance.sh [--diagnose|--preview|--package-preview|--apply|--finalize|--version]\n--apply is for supervised pre-production validation only.\n' "$WRN_SCRIPT_VERSION"; exit 0 ;;
   *) echo 'Usage: --diagnose, --preview, --package-preview, --apply, --finalize' >&2; exit 2 ;;
 esac
 [[ $EUID -eq 0 ]] || { echo 'Run with sudo' >&2; exit 2; }
@@ -767,7 +767,7 @@ record_service_history() {
   {
     [[ -s "$h" ]] || printf 'WRN SERVICE HISTORY\n===================\n'
     printf '\n=== MAINTENANCE VISIT ===\n'
-    printf 'Date UTC: %s\nHost: %s\nScript: %s\n' "$entry" "$(hostname -s)" "$VERSION"
+    printf 'Date UTC: %s\nHost: %s\nScript: %s\n' "$entry" "$(hostname -s)" "$WRN_SCRIPT_VERSION"
     printf 'OS initial: %s\nOS final: %s\n' "$before" "$after"
     printf 'Optional applications: %s\nLeftover dependencies: %s\n' "$APP_RESULT" "$LEFT_RESULT"
     printf 'Core maintenance exit code: %s\n' "$rc"
