@@ -563,6 +563,51 @@ snap_cleanup() {
   echo 'IMPORTANT: a refresh hold does not prevent manual snap install, apt operations, or other installers.'
 }
 
+# ADDITIVE PILOT: remove only the approved Snap applications and their now-unused
+# runtimes. Never uninstall snapd/apt packages, touch Snap seed files, or remove
+# any unknown Snap. The normal maintenance safety checks remain in force.
+snap_active_cleanup_pilot() {
+  echo '=== APPROVED ACTIVE SNAP CLEANUP (GUARDED PILOT) ==='
+  command -v snap >/dev/null 2>&1 || { echo 'SKIP: snap command unavailable'; return 0; }
+  local pkg name remaining
+  for pkg in gdm3 gnome-shell google-chrome-stable cockpit; do
+    if [[ "$(dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null)" != 'install ok installed' ]]; then
+      echo "STOP SNAP STAGE: protected desktop package missing: $pkg"; return 1
+    fi
+  done
+  safe_state || return 1
+  # Any extra Snap application may consume one of the shared runtimes.
+  # Skip this optional stage rather than risk removing its dependencies.
+  remaining="$(timeout -k 2s 20s snap list 2>/dev/null | awk 'NR>1 {print $1}')" || {
+    echo 'STOP SNAP STAGE: unable to enumerate installed Snaps'; return 1;
+  }
+  while IFS= read -r name; do
+    [[ -n "$name" ]] || continue
+    case "$name" in
+      firefox|snap-store|snapd-desktop-integration|gnome-3-38-2004|gnome-42-2204|gnome-46-2404|mesa-2404|gtk-common-themes|core20|core22|core24|bare|snapd) ;;
+      *) echo "SKIP SNAP STAGE: unrecognized installed Snap $name; manual review required"; return 0 ;;
+    esac
+  done <<< "$remaining"
+  for name in firefox snap-store snapd-desktop-integration \
+              gnome-3-38-2004 gnome-42-2204 gnome-46-2404 \
+              mesa-2404 gtk-common-themes core20 core22 core24 bare; do
+    if snap list "$name" >/dev/null 2>&1; then
+      safe_state || return 1
+      echo "Removing approved Snap: $name"
+      # External timeout protects remote technicians from indefinite Snap hangs.
+      if ! timeout -k 10s 180s snap remove --purge "$name"; then
+        echo "STOP SNAP STAGE: removal failed/timed out for $name; review logs; no forced deletion"; return 1
+      fi
+    else
+      echo "Already absent: $name"
+    fi
+  done
+  safe_state || return 1
+  echo 'Remaining installed Snaps (snapd is deliberately preserved):'
+  snap list --all 2>&1 || true
+  echo 'ACTIVE SNAP CLEANUP COMPLETE; validate desktop and WAVE client before finalization.'
+}
+
 run_preview() {
   local who="${SUDO_USER:-wave}" home out current source fs uuid entries oldtype opts oldspec
   home="$(getent passwd "$who" | cut -d: -f6)"
@@ -842,7 +887,6 @@ finalize_visit() {
 
 run_apply() {
   maintenance_log_setup || return 1
-  echo "SUPERVISED TEST BUILD $VERSION; DO NOT DEPLOY TO FLEET"
   INITIAL_SPACE="$(df -h / | awk 'NR==2{print $5 " used, " $4 " free"}')"
   echo '=== BEFORE ==='
   safe_state || return 1
@@ -869,6 +913,8 @@ run_apply() {
   if package_stage APPLICATIONS apply; then APP_RESULT='completed-or-not-needed'; else APP_RESULT='blocked'; echo 'STOP: application stage failed its guard'; return 1; fi
   safe_state || return 1
   if package_stage LEFTOVERS apply; then LEFT_RESULT='completed-or-not-needed'; else LEFT_RESULT='blocked'; echo 'STOP: leftovers stage failed its guard'; return 1; fi
+  safe_state || return 1
+  snap_active_cleanup_pilot || return 1
   safe_state || return 1
   echo '=== FINAL FREE SPACE ==='; df -h /
   record_service_history "$INITIAL_SPACE" "$(df -h / | awk 'NR==2{print $5 " used, " $4 " free"}')" 0 || return 1
