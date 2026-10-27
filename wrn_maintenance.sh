@@ -1,19 +1,22 @@
 #!/usr/bin/env bash
-# WRN Maintenance 1.0.0-dev.7 - PRE-PRODUCTION / SUPERVISED TESTING ONLY
+# WRN Maintenance 1.0.0-dev.10-pilot - PRE-PRODUCTION / SUPERVISED TESTING ONLY
 # Ubuntu 22.04. --diagnose and --preview are read-only; --apply performs conditional maintenance.
 # No WAVE/network restart, remount, fsck, reboot, or video cleanup.
-VERSION='1.0.0-dev.7'
+VERSION='1.0.0-dev.10-pilot'
 MODE="${1:---diagnose}"
 [[ $# -le 1 ]] || { echo 'Only one option permitted' >&2; exit 2; }
 case "$MODE" in
-  --diagnose|--preview|--apply) ;;
+  --diagnose|--preview|--apply|--package-preview|--tidy-preview|--tidy|--finalize) ;;
   --version) echo "$VERSION"; exit 0 ;;
-  --help|-h) printf 'WRN Maintenance %s\nUsage: sudo bash wrn_maintenance.sh [--diagnose|--preview|--apply|--version]\n--apply is for supervised pre-production validation only.\n' "$VERSION"; exit 0 ;;
-  *) echo 'Usage: --diagnose, --preview or --apply' >&2; exit 2 ;;
+  --help|-h) printf 'WRN Maintenance %s\nUsage: sudo bash wrn_maintenance.sh [--diagnose|--preview|--package-preview|--apply|--finalize|--version]\n--apply is for supervised pre-production validation only.\n' "$VERSION"; exit 0 ;;
+  *) echo 'Usage: --diagnose, --preview, --package-preview, --apply, --finalize' >&2; exit 2 ;;
 esac
 [[ $EUID -eq 0 ]] || { echo 'Run with sudo' >&2; exit 2; }
 . /etc/os-release
 [[ "${ID:-}" == ubuntu && "${VERSION_ID:-}" == '22.04' ]] || { echo 'Only Ubuntu 22.04 is supported' >&2; exit 2; }
+WRN_DIR=/home/wave/Downloads/maintenance
+[[ -d "$WRN_DIR" && ! -L "$WRN_DIR" ]] || { echo 'STOP: maintenance folder must exist and not be a symlink' >&2; exit 2; }
+export WRN_REPORT_DIR="$WRN_DIR"
 
 # Capture diagnostics in a subshell; the original collector retains its own report handling.
 collect_diagnostics() (
@@ -25,14 +28,15 @@ if (( EUID != 0 )); then echo 'ERROR: run with sudo for complete system logs and
 OPERATOR="${SUDO_USER:-root}"
 OP_HOME="$(getent passwd "$OPERATOR" | cut -d: -f6)"
 [[ -n "$OP_HOME" ]] || OP_HOME=/root
-OUTDIR="${WRN_REPORT_DIR:-$OP_HOME/Downloads/maintenance}"
+OUTDIR="${WRN_REPORT_DIR:-$OP_HOME/Downloads}"
 if [[ ! -d "$OUTDIR" ]]; then echo "ERROR: report directory not found: $OUTDIR" >&2; exit 1; fi
 HOST="$(hostname -s 2>/dev/null | tr -cd '[:alnum:]_.-' | cut -c1-48)"
 HOST="${HOST:-unknown}"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 REPORT="$OUTDIR/WRN-Diagnostics_${HOST}_${STAMP}_$$.txt"
 : > "$REPORT" || exit 1
-chmod 640 "$REPORT"
+chmod 644 "$REPORT"
+chown wave:wave "$REPORT" 2>/dev/null || true
 
 section() { printf '\n===== %s =====\n' "$1" >> "$REPORT"; }
 run() {
@@ -73,7 +77,7 @@ ARCHIVE_MOUNTED='NO'
 if findmnt -rn -M "$ARCHIVE_MOUNT" >/dev/null 2>&1; then ARCHIVE_MOUNTED='YES'; fi
 
 section 'REPORT INFORMATION'
-printf 'UTC: %s\nHostname: %s\nCollector: WRN Maintenance 1.0.0-dev.7\nOperator: %s\nMode: READ-ONLY\nArchive selected: %s\nSelection method: %s\nArchive mounted at /mnt/sda: %s\n' "$(date -u -Is)" "$HOST" "$OPERATOR" "${ARCHIVE_DEV:-UNRESOLVED}" "${ARCHIVE_MATCH:-not determined}" "$ARCHIVE_MOUNTED" >> "$REPORT"
+printf 'UTC: %s\nHostname: %s\nCollector: WRN Maintenance 1.0.0-dev.10-pilot\nOperator: %s\nMode: READ-ONLY\nArchive selected: %s\nSelection method: %s\nArchive mounted at /mnt/sda: %s\n' "$(date -u -Is)" "$HOST" "$OPERATOR" "${ARCHIVE_DEV:-UNRESOLVED}" "${ARCHIVE_MATCH:-not determined}" "$ARCHIVE_MOUNTED" >> "$REPORT"
 run 'OS, KERNEL, TIME, UPTIME' 5 bash -c 'grep -E "^(PRETTY_NAME|VERSION_ID)=" /etc/os-release; printf "Kernel: "; uname -r; printf "Local time: "; date -Is; printf "Boot: "; uptime -s; uptime -p'
 run 'OS DISK CAPACITY' 5 df -hT /
 run 'OS JOURNAL UTILIZATION (READ-ONLY)' 8 bash -c 'journalctl --disk-usage 2>&1; for p in /var/log/journal /run/log/journal; do if [[ -d "$p" ]]; then du -sh "$p" 2>&1; else echo "$p: not present"; fi; done'
@@ -328,8 +332,9 @@ NOTES
 if [[ "$OPERATOR" != root ]]; then
   chown "$OPERATOR" "$REPORT" 2>/dev/null || echo "WARNING: report ownership could not be changed: $REPORT" >&2
 fi
-chmod 640 "$REPORT"
-printf '\n========== WRN MAINTENANCE 1.0.0-dev.7 | DIAGNOSTICS ========\n'
+chmod 644 "$REPORT"
+chown wave:wave "$REPORT" 2>/dev/null || true
+printf '\n========== WRN MAINTENANCE 1.0.0-dev.10-pilot | DIAGNOSTICS ========\n'
 printf 'Host: %s\nReport: %s\n' "$HOST" "$REPORT"
 printf 'OS: '; df -h / | awk 'NR==2 {print $5 " used; " $4 " free"}'
 printf 'Archive: %s (%s)\n' "$ARCHIVE_MOUNTED" "${ARCHIVE_DEV:-UNRESOLVED}"
@@ -344,10 +349,10 @@ printf 'Diagnostic report collected. This diagnostic operation did not modify se
 maintenance_log_setup() {
   local who="${SUDO_USER:-wave}" home
   home="$(getent passwd "$who" | cut -d: -f6)"
-  [[ -n "$home" && -d "$home/Downloads/maintenance" ]] || { echo 'STOP: Downloads directory unavailable' >&2; return 1; }
-  WRN_LOG="$home/Downloads/maintenance/WRN-Maintenance_$(hostname -s)_$(date -u +%Y%m%dT%H%M%SZ)_dev7.txt"
+  [[ -n "$home" && -d "$home/Downloads" ]] || { echo 'STOP: Downloads directory unavailable' >&2; return 1; }
+  WRN_LOG="$WRN_DIR/WRN-Maintenance_$(hostname -s)_$(date -u +%Y%m%dT%H%M%SZ)_dev10.txt"
   touch "$WRN_LOG" || return 1
-  chmod 640 "$WRN_LOG" || return 1
+  chmod 644 "$WRN_LOG" || return 1
   if [[ "$who" != root ]]; then
     chown "$who" "$WRN_LOG" || { echo "STOP: cannot grant report access to $who" >&2; return 1; }
   fi
@@ -561,8 +566,8 @@ snap_cleanup() {
 run_preview() {
   local who="${SUDO_USER:-wave}" home out current source fs uuid entries oldtype opts oldspec
   home="$(getent passwd "$who" | cut -d: -f6)"
-  [[ -n "$home" && -d "$home/Downloads/maintenance" ]] || { echo 'STOP: Downloads not found'; return 1; }
-  out="$home/Downloads/maintenance/WRN-KB-Repair-Preview_$(hostname -s)_$(date -u +%Y%m%dT%H%M%SZ)_dev7.txt"
+  [[ -n "$home" && -d "$home/Downloads" ]] || { echo 'STOP: Downloads not found'; return 1; }
+  out="$WRN_DIR/WRN-KB-Repair-Preview_$(hostname -s)_$(date -u +%Y%m%dT%H%M%SZ)_dev10.txt"
   ( umask 077
     {
       echo "=== WRN MAINTENANCE $VERSION / READ-ONLY REPAIR PLAN ==="
@@ -627,7 +632,7 @@ run_preview() {
       echo '=== END READ-ONLY PLAN; NO CHANGES ==='
     } >"$out" 2>&1
   )
-  chmod 640 "$out"
+  chmod 644 "$out"
   if [[ "$who" != root ]]; then chown "$who" "$out" || return 1; fi
   echo "Repair preview saved: $out"
 }
@@ -673,9 +678,172 @@ final_kb_summary() {
   echo 'NOTE: logrotate size/schedule warnings may still exist, and historical alerts may remain in WAVE logs'
 }
 
+
+# --- PILOT: guarded optional application removal (tested on WRN #2). ---
+APP_ALLOWED=(libreoffice-common libreoffice-core libreoffice-gnome libreoffice-gtk3 libreoffice-help-common libreoffice-help-da libreoffice-help-en-gb libreoffice-help-en-us libreoffice-help-es libreoffice-help-et libreoffice-help-fi libreoffice-help-fr libreoffice-help-it libreoffice-help-nl libreoffice-help-pl libreoffice-help-pt libreoffice-help-pt-br libreoffice-help-sv libreoffice-help-tr libreoffice-l10n-da libreoffice-l10n-en-gb libreoffice-l10n-en-za libreoffice-l10n-es libreoffice-l10n-et libreoffice-l10n-fi libreoffice-l10n-fr libreoffice-l10n-is libreoffice-l10n-it libreoffice-l10n-lt libreoffice-l10n-lv libreoffice-l10n-nl libreoffice-l10n-nn libreoffice-l10n-pl libreoffice-l10n-pt libreoffice-l10n-pt-br libreoffice-l10n-sv libreoffice-l10n-tr libreoffice-math libreoffice-pdfimport libreoffice-voikko mythes-pl python3-uno thunderbird thunderbird-gnome-support thunderbird-locale-da thunderbird-locale-en thunderbird-locale-en-gb thunderbird-locale-en-us thunderbird-locale-es thunderbird-locale-es-ar thunderbird-locale-es-es thunderbird-locale-et thunderbird-locale-fi thunderbird-locale-fr thunderbird-locale-is thunderbird-locale-it thunderbird-locale-lt thunderbird-locale-lv thunderbird-locale-nl thunderbird-locale-nn thunderbird-locale-nn-no thunderbird-locale-pl thunderbird-locale-pt thunderbird-locale-pt-br thunderbird-locale-pt-pt thunderbird-locale-sv thunderbird-locale-sv-se thunderbird-locale-tr)
+LEFT_ALLOWED=(libboost-filesystem1.74.0 libboost-iostreams1.74.0 libboost-locale1.74.0 libboost-thread1.74.0 libclucene-contribs1v5 libclucene-core1v5 libeot0 libexttextcat-2.0-0 libexttextcat-data libgpgmepp6 liblangtag-common liblangtag1 libmessaging-menu0 libmhash2 libmythes-1.2-0 liborcus-0.17-0 liborcus-parser-0.17-0 libraptor2-0 librasqal3 librdf0 libreoffice-style-elementary libreoffice-style-yaru librevenge-0.0-0 libuno-cppu3 libuno-cppuhelpergcc3-3 libuno-purpenvhelpergcc3-3 libuno-sal3 libuno-salhelpergcc3-3 libxmlsec1 libxmlsec1-nss libyajl2 uno-libs-private ure)
+PROTECTED_PKGS=(ubuntu-desktop ubuntu-desktop-minimal gnome-shell gdm3 network-manager openssh-server cockpit google-chrome-stable snapd)
+APP_RESULT=not-run
+LEFT_RESULT=not-run
+
+package_guard() {
+  safe_state || return 1
+  local pkg status
+  for pkg in "${PROTECTED_PKGS[@]}"; do
+    status="$(dpkg-query -W -f='${db:Status-Abbrev}' "$pkg" 2>/dev/null || true)"
+    [[ "$status" == ii* ]] || { echo "BLOCKED: required package missing: $pkg ($status)"; return 1; }
+  done
+  [[ -z "$(dpkg --audit 2>/dev/null)" ]] || { echo 'BLOCKED: dpkg audit not clean'; return 1; }
+  [[ "$(findmnt -rn -M /mnt/sda -o FSTYPE 2>/dev/null)" == ext4 ]] || return 1
+}
+
+# Run a fresh APT simulation and permit removal ONLY if every proposed package
+# belongs to an explicitly reviewed package list. No broad autoremove executes.
+package_stage() {
+  local stage="$1" action="$2"; shift 2
+  local sim list approved explicit checked pkg
+  sim="$(mktemp)" || return 1
+  list="$(mktemp)" || { rm -f "$sim"; return 1; }
+  approved="$(mktemp)" || { rm -f "$sim" "$list"; return 1; }
+  explicit="$(mktemp)" || { rm -f "$sim" "$list" "$approved"; return 1; }
+  checked="$(mktemp)" || { rm -f "$sim" "$list" "$approved" "$explicit"; return 1; }
+  echo "=== GUARDED $stage ==="
+  if ! package_guard; then echo "SKIP $stage: preflight failure"; rm -f "$sim" "$list" "$approved" "$explicit" "$checked"; return 2; fi
+  if [[ "$stage" == APPLICATIONS ]]; then
+    printf '%s\n' "${APP_ALLOWED[@]}" | sort -u > "$approved"
+    if ! apt-get -s --no-install-recommends purge thunderbird libreoffice-core libreoffice-common > "$sim" 2>&1; then
+      echo "SKIP $stage: APT simulation failed"; tail -35 "$sim"; rm -f "$sim" "$list" "$approved" "$explicit" "$checked"; return 2
+    fi
+  else
+    printf '%s\n' "${LEFT_ALLOWED[@]}" | sort -u > "$approved"
+    if ! apt-get -s autoremove --purge > "$sim" 2>&1; then
+      echo "SKIP $stage: APT simulation failed"; tail -35 "$sim"; rm -f "$sim" "$list" "$approved" "$explicit" "$checked"; return 2
+    fi
+  fi
+  awk '$1=="Purg" {print $2}' "$sim" | sort -u > "$list"
+  if grep -Eq '^(Inst|Conf|Remv) ' "$sim"; then
+    echo "SKIP $stage: APT proposed non-purge transaction"; rm -f "$sim" "$list" "$approved" "$explicit" "$checked"; return 2
+  fi
+  if [[ ! -s "$list" ]]; then
+    echo "SKIP $stage: nothing left to remove"; rm -f "$sim" "$list" "$approved" "$explicit" "$checked"; return 0
+  fi
+  if [[ -n "$(comm -23 "$list" "$approved")" ]]; then
+    echo "SKIP $stage: unexpected packages; no changes"; comm -23 "$list" "$approved"
+    rm -f "$sim" "$list" "$approved" "$explicit" "$checked"; return 2
+  fi
+  mapfile -t selection < "$list"
+  # Explicitly purge the exact approved packages, never execute apt autoremove.
+  if ! apt-get -s --no-install-recommends purge "${selection[@]}" > "$explicit" 2>&1; then
+    echo "SKIP $stage: explicit simulation failed"; tail -35 "$explicit"
+    rm -f "$sim" "$list" "$approved" "$explicit" "$checked"; return 2
+  fi
+  awk '$1=="Purg" {print $2}' "$explicit" | sort -u > "$checked"
+  if ! cmp -s "$checked" "$list" || grep -Eq '^(Inst|Conf|Remv) ' "$explicit"; then
+    echo "SKIP $stage: explicit transaction changed removal plan"
+    diff -u "$list" "$checked" || true
+    rm -f "$sim" "$list" "$approved" "$explicit" "$checked"; return 2
+  fi
+  echo "APPROVED $stage: $(wc -l < "$list") packages"; cat "$list"
+  if [[ "$action" == preview ]]; then
+    echo "PREVIEW ONLY $stage: no changes made"
+    rm -f "$sim" "$list" "$approved" "$explicit" "$checked"
+    return 0
+  fi
+  if ! DEBIAN_FRONTEND=noninteractive APT_LISTCHANGES_FRONTEND=none apt-get -y --no-install-recommends purge "${selection[@]}"; then
+    echo "ERROR $stage: APT failed. Check dpkg status before more package maintenance."
+    rm -f "$sim" "$list" "$approved" "$explicit" "$checked"; return 1
+  fi
+  rm -f "$sim" "$list" "$approved" "$explicit" "$checked"
+  package_guard || { echo "ERROR $stage: post-apply safety check failed"; return 1; }
+  echo "COMPLETE $stage: approved packages removed"
+}
+
+# Append a machine-local service entry without claiming playback validation.
+record_service_history() {
+  local h="$WRN_DIR/WRN-Service-History.txt" before="$1" after="$2" rc="$3" entry
+  [[ ! -L "$h" ]] || { echo 'ERROR: service history is a symlink'; return 1; }
+  [[ ! -e "$h" || ( -f "$h" && "$(stat -c %h "$h")" == 1 ) ]] || return 1
+  entry="$(date -u '+%Y-%m-%d %H:%M:%SZ')"
+  {
+    [[ -s "$h" ]] || printf 'WRN SERVICE HISTORY\n===================\n'
+    printf '\n=== MAINTENANCE VISIT ===\n'
+    printf 'Date UTC: %s\nHost: %s\nScript: %s\n' "$entry" "$(hostname -s)" "$VERSION"
+    printf 'OS initial: %s\nOS final: %s\n' "$before" "$after"
+    printf 'Optional applications: %s\nLeftover dependencies: %s\n' "$APP_RESULT" "$LEFT_RESULT"
+    printf 'Core maintenance exit code: %s\n' "$rc"
+    printf 'WAVE service: %s\n' "$(systemctl is-active hanwha-mediaserver.service 2>/dev/null || true)"
+    printf 'Archive: %s\n' "$(findmnt -rn -M /mnt/sda -o SOURCE,FSTYPE,OPTIONS 2>/dev/null || true)"
+    printf 'Updates policy: unchanged by this script (audit separately per WRN)\n'
+    printf 'Recording/playback: manual verification required (NOT automatically verified)\n'
+    printf 'Maintenance report: %s\n' "${WRN_LOG##*/}"
+  } >> "$h" || return 1
+  chown wave:wave "$h" && chmod 0644 "$h"
+}
+
+# Clear only known report files; leave the history, main script and unfamiliar files.
+# Reports from current run are pruned only after the service entry exists and the run succeeds.
+tidy_reports() {
+  local mode="$1" h="$WRN_DIR/WRN-Service-History.txt" file n=0
+  [[ -f "$h" && -s "$h" && ! -L "$h" ]] || { echo 'STOP: permanent service history required'; return 1; }
+  local patterns=( -name 'WRN-Diagnostics_*.txt' -o -name 'WRN-Maintenance_*.txt'
+     -o -name 'WRN-KB-Repair-Preview_*.txt' -o -name 'WRN-Remaining-OS-Space_*.txt'
+     -o -name 'WRN-Optional-Apps-*.txt' -o -name 'WRN-Leftovers-*.txt'
+     -o -name 'WRN-Autoremove-Updates-Audit_*.txt' -o -name 'WRN-App-Space-Estimate_*.txt'
+     -o -name 'WRN-Downloads-Cleanup-Preview_*.txt' -o -name 'WRN-Service-History-Preview_*.txt' )
+  mapfile -d '' to_remove < <(find "$WRN_DIR" -maxdepth 1 -type f ! -links +1 \( "${patterns[@]}" \) -print0)
+  echo "=== REPORT TIDY ($mode): ${#to_remove[@]} known temporary reports ==="
+  printf '  %s\n' "${to_remove[@]##*/}"
+  if [[ "$mode" == preview ]]; then return 0; fi
+  # Note that these old reports are being deleted, but preserve the most recent
+  # maintenance transcript as a diagnostic audit when running automatically.
+  for file in "${to_remove[@]}"; do
+    [[ "$file" == "$WRN_LOG" ]] && continue
+    [[ -f "$file" && ! -L "$file" && "$(stat -c %h "$file")" == 1 ]] || continue
+    rm -f -- "$file" && ((n+=1)) || true
+  done
+  echo "Removed $n prior reports; preserved current log and permanent history."
+}
+
+# Explicit end-of-visit finalization, only AFTER technician confirms live video,
+# playback and local desktop. This removes top-level regular files including the
+# running script but never descends into directories and refuses symlinks.
+finalize_visit() {
+  local h="$WRN_DIR/WRN-Service-History.txt" f
+  [[ -f "$h" && -s "$h" && ! -L "$h" && "$(stat -c %h "$h")" == 1 ]] || {
+    echo 'STOP: verified permanent history required before deletion'; return 1;
+  }
+  safe_state || return 1
+  if find "$WRN_DIR" -mindepth 1 -maxdepth 1 -type l | grep -q .; then
+    echo 'STOP: symlinks present in maintenance folder; inspect manually'; return 1
+  fi
+  if find "$WRN_DIR" -mindepth 1 -maxdepth 1 -type d | grep -q .; then
+    echo 'STOP: subdirectories present; inspect manually'; return 1
+  fi
+  # Document finalization itself before removing evidence.
+  {
+    printf '\n=== VISIT FINALIZED ===\nUTC: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    printf 'Technician confirmation: desktop, recording and playback confirmed before running --finalize\n'
+    printf 'WAVE service: %s\n' "$(systemctl is-active hanwha-mediaserver.service 2>/dev/null || true)"
+    printf 'Archive: %s\n' "$(findmnt -rn -M /mnt/sda -o SOURCE,FSTYPE,OPTIONS 2>/dev/null || true)"
+    printf 'OS: %s\n' "$(df -h / | awk 'NR==2{print $5 " used, " $4 " free"}')"
+  } >> "$h" || return 1
+  chown wave:wave "$h" && chmod 0644 "$h" || return 1
+  for f in "$WRN_DIR"/* "$WRN_DIR"/.[!.]* "$WRN_DIR"/..?*; do
+    [[ -e "$f" ]] || continue
+    [[ "$f" == "$h" ]] && continue
+    [[ -f "$f" && ! -L "$f" && "$(stat -c %h "$f")" == 1 ]] || {
+      echo "STOP: unexpected file type/hardlink, retained: $f"; return 1;
+    }
+  done
+  find "$WRN_DIR" -mindepth 1 -maxdepth 1 -type f ! -name WRN-Service-History.txt -delete || return 1
+  echo 'FINALIZED: maintenance folder now contains permanent WRN-Service-History.txt only.'
+  ls -la "$WRN_DIR"
+}
+
 run_apply() {
   maintenance_log_setup || return 1
   echo "SUPERVISED TEST BUILD $VERSION; DO NOT DEPLOY TO FLEET"
+  INITIAL_SPACE="$(df -h / | awk 'NR==2{print $5 " used, " $4 " free"}')"
   echo '=== BEFORE ==='
   safe_state || return 1
   df -h /
@@ -695,11 +863,30 @@ run_apply() {
   collect_diagnostics || return 1
   safe_state || return 1
   final_kb_summary || return 1
-  echo 'COMPLETE: review reports and verify WAVE recording/playback manually'
+  echo '=== GUARDED OPTIONAL SOFTWARE STAGES ==='
+  APP_RESULT=skipped
+  LEFT_RESULT=skipped
+  if package_stage APPLICATIONS apply; then APP_RESULT='completed-or-not-needed'; else APP_RESULT='blocked'; echo 'STOP: application stage failed its guard'; return 1; fi
+  safe_state || return 1
+  if package_stage LEFTOVERS apply; then LEFT_RESULT='completed-or-not-needed'; else LEFT_RESULT='blocked'; echo 'STOP: leftovers stage failed its guard'; return 1; fi
+  safe_state || return 1
+  echo '=== FINAL FREE SPACE ==='; df -h /
+  record_service_history "$INITIAL_SPACE" "$(df -h / | awk 'NR==2{print $5 " used, " $4 " free"}')" 0 || return 1
+  echo "PERMANENT HISTORY UPDATED — $WRN_DIR/WRN-Service-History.txt"
+  echo 'PILOT COMPLETE: verify desktop and WAVE recording/playback, then run --finalize.'
+  echo 'Logs and scripts are intentionally preserved until verification and finalization.' 
   echo "Maintenance log: $WRN_LOG"
 }
 
-if [[ "$MODE" == --diagnose ]]; then
+if [[ "$MODE" == --package-preview ]]; then
+  package_stage APPLICATIONS preview; package_stage LEFTOVERS preview
+elif [[ "$MODE" == --tidy-preview ]]; then
+  tidy_reports preview
+elif [[ "$MODE" == --tidy ]]; then
+  tidy_reports apply
+elif [[ "$MODE" == --finalize ]]; then
+  finalize_visit
+elif [[ "$MODE" == --diagnose ]]; then
   collect_diagnostics
 elif [[ "$MODE" == --preview ]]; then
   run_preview
