@@ -6,12 +6,12 @@ set -Eeuo pipefail
 export LC_ALL=C
 umask 077
 
-INSTALLER_VERSION='1.0.0-dev.7-folder-pilot.1'
+INSTALLER_VERSION='1.0.0-dev.7-folder-pilot.2'
 BASE_URL='https://raw.githubusercontent.com/bbradford1/wrn-maintenance/main'
 MODERN_SHA256='fe9ba7da1898b0286fd31770f6c0412d50cd9dc18cc6528df5236cf462f9041d'
 LEGACY_SHA256='1dd0a5920eed0b39f6102ed351c12fbc59ebf21aeafde99ea142f2731cc423ff'
 ARCHIVE_SHA256='aba17d475f22b907c961f4ee855f0106fda9d16ac317ef50b4119236796d8193'
-CLEAN_SHA256='a879fb8a2226cb467ba7f92108b34721e7a516156dc0f21dd9c042ce51aec286'
+CLEAN_SHA256='bd9f38959b0dc452f921e548aa8400d18dee47d29da170d00378ec23e3f319b7'
 SPACE_SHA256='6e122ce3c6694aa0d49d8fb8411dd1e8a049f2d7303c31bfa5b2334f14b821b4'
 
 fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
