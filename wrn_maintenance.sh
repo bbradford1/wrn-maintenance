@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# WRN Maintenance 1.0.0-dev.10-pilot - PRE-PRODUCTION / SUPERVISED TESTING ONLY
+# WRN Maintenance 1.0.0-dev.17-tech-pilot - PRE-PRODUCTION / LAB ONLY
 # Ubuntu 22.04. --diagnose and --preview are read-only; --apply performs conditional maintenance.
 # No WAVE/network restart, remount, fsck, reboot, or video cleanup.
-WRN_SCRIPT_VERSION='1.0.0-dev.11-pilot'
+WRN_SCRIPT_VERSION='1.0.0-dev.17-tech-pilot'
 MODE="${1:---diagnose}"
 [[ $# -le 1 ]] || { echo 'Only one option permitted' >&2; exit 2; }
 case "$MODE" in
@@ -77,7 +77,7 @@ ARCHIVE_MOUNTED='NO'
 if findmnt -rn -M "$ARCHIVE_MOUNT" >/dev/null 2>&1; then ARCHIVE_MOUNTED='YES'; fi
 
 section 'REPORT INFORMATION'
-printf 'UTC: %s\nHostname: %s\nCollector: WRN Maintenance 1.0.0-dev.10-pilot\nOperator: %s\nMode: READ-ONLY\nArchive selected: %s\nSelection method: %s\nArchive mounted at /mnt/sda: %s\n' "$(date -u -Is)" "$HOST" "$OPERATOR" "${ARCHIVE_DEV:-UNRESOLVED}" "${ARCHIVE_MATCH:-not determined}" "$ARCHIVE_MOUNTED" >> "$REPORT"
+printf 'UTC: %s\nHostname: %s\nCollector: WRN Maintenance 1.0.0-dev.17-tech-pilot\nOperator: %s\nMode: READ-ONLY\nArchive selected: %s\nSelection method: %s\nArchive mounted at /mnt/sda: %s\n' "$(date -u -Is)" "$HOST" "$OPERATOR" "${ARCHIVE_DEV:-UNRESOLVED}" "${ARCHIVE_MATCH:-not determined}" "$ARCHIVE_MOUNTED" >> "$REPORT"
 run 'OS, KERNEL, TIME, UPTIME' 5 bash -c 'grep -E "^(PRETTY_NAME|VERSION_ID)=" /etc/os-release; printf "Kernel: "; uname -r; printf "Local time: "; date -Is; printf "Boot: "; uptime -s; uptime -p'
 run 'OS DISK CAPACITY' 5 df -hT /
 run 'OS JOURNAL UTILIZATION (READ-ONLY)' 8 bash -c 'journalctl --disk-usage 2>&1; for p in /var/log/journal /run/log/journal; do if [[ -d "$p" ]]; then du -sh "$p" 2>&1; else echo "$p: not present"; fi; done'
@@ -334,7 +334,7 @@ if [[ "$OPERATOR" != root ]]; then
 fi
 chmod 644 "$REPORT"
 chown wave:wave "$REPORT" 2>/dev/null || true
-printf '\n========== WRN MAINTENANCE 1.0.0-dev.10-pilot | DIAGNOSTICS ========\n'
+printf '\n========== WRN MAINTENANCE 1.0.0-dev.17-tech-pilot | DIAGNOSTICS ========\n'
 printf 'Host: %s\nReport: %s\n' "$HOST" "$REPORT"
 printf 'OS: '; df -h / | awk 'NR==2 {print $5 " used; " $4 " free"}'
 printf 'Archive: %s (%s)\n' "$ARCHIVE_MOUNTED" "${ARCHIVE_DEV:-UNRESOLVED}"
@@ -350,14 +350,14 @@ maintenance_log_setup() {
   local who="${SUDO_USER:-wave}" home
   home="$(getent passwd "$who" | cut -d: -f6)"
   [[ -n "$home" && -d "$home/Downloads" ]] || { echo 'STOP: Downloads directory unavailable' >&2; return 1; }
-  WRN_LOG="$WRN_DIR/WRN-Maintenance_$(hostname -s)_$(date -u +%Y%m%dT%H%M%SZ)_dev10.txt"
+  WRN_LOG="$WRN_DIR/WRN-Maintenance_$(hostname -s)_$(date -u +%Y%m%dT%H%M%SZ)_dev17.txt"
   touch "$WRN_LOG" || return 1
   chmod 644 "$WRN_LOG" || return 1
   if [[ "$who" != root ]]; then
     chown "$who" "$WRN_LOG" || { echo "STOP: cannot grant report access to $who" >&2; return 1; }
   fi
   exec > >(tee -a "$WRN_LOG") 2>&1
-  echo "Maintenance build=$VERSION, log=$WRN_LOG"
+  echo "Maintenance build=$WRN_SCRIPT_VERSION, log=$WRN_LOG"
 }
 
 safe_state() {
@@ -612,7 +612,7 @@ run_preview() {
   local who="${SUDO_USER:-wave}" home out current source fs uuid entries oldtype opts oldspec
   home="$(getent passwd "$who" | cut -d: -f6)"
   [[ -n "$home" && -d "$home/Downloads" ]] || { echo 'STOP: Downloads not found'; return 1; }
-  out="$WRN_DIR/WRN-KB-Repair-Preview_$(hostname -s)_$(date -u +%Y%m%dT%H%M%SZ)_dev10.txt"
+  out="$WRN_DIR/WRN-KB-Repair-Preview_$(hostname -s)_$(date -u +%Y%m%dT%H%M%SZ)_dev17.txt"
   ( umask 077
     {
       echo "=== WRN MAINTENANCE $VERSION / READ-ONLY REPAIR PLAN ==="
@@ -853,21 +853,40 @@ tidy_reports() {
 # playback and local desktop. This removes top-level regular files including the
 # running script but never descends into directories and refuses symlinks.
 finalize_visit() {
-  local h="$WRN_DIR/WRN-Service-History.txt" f
+  local h="$WRN_DIR/WRN-Service-History.txt" f already_confirmed="${1:-no}"
   [[ -f "$h" && -s "$h" && ! -L "$h" && "$(stat -c %h "$h")" == 1 ]] || {
     echo 'STOP: verified permanent history required before deletion'; return 1;
   }
   safe_state || return 1
+  # Only allow finalization for a new, successful, not-yet-finalized maintenance visit.
+  if ! python3 - "$h" <<'PY_HISTORY'
+import pathlib, sys
+text = pathlib.Path(sys.argv[1]).read_text(errors='replace')
+visit = text.rfind('=== MAINTENANCE VISIT ===')
+finalized = text.rfind('=== VISIT FINALIZED ===')
+if visit < 0 or visit < finalized or 'Core maintenance exit code: 0' not in text[visit:]:
+    raise SystemExit('STOP: no new successful maintenance visit awaiting finalization')
+PY_HISTORY
+  then
+    return 1
+  fi
   if find "$WRN_DIR" -mindepth 1 -maxdepth 1 -type l | grep -q .; then
     echo 'STOP: symlinks present in maintenance folder; inspect manually'; return 1
   fi
   if find "$WRN_DIR" -mindepth 1 -maxdepth 1 -type d | grep -q .; then
     echo 'STOP: subdirectories present; inspect manually'; return 1
   fi
+  echo 'FINALIZATION: all reports and scripts in the maintenance folder will be deleted.'
+  echo 'Do NOT confirm if desktop, new recording and playback have not all been tested.'
+  if [[ "$already_confirmed" != yes ]]; then
+    tech_prompt 'I personally verified desktop, new WAVE recording AND playback. Finalize now?' || {
+      echo 'Finalization declined or unavailable; no files deleted.'; return 1;
+    }
+  fi
   # Document finalization itself before removing evidence.
   {
     printf '\n=== VISIT FINALIZED ===\nUTC: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    printf 'Technician confirmation: desktop, recording and playback confirmed before running --finalize\n'
+    printf 'Technician attestation: desktop, new recording and playback confirmed interactively during --finalize\n'
     printf 'WAVE service: %s\n' "$(systemctl is-active hanwha-mediaserver.service 2>/dev/null || true)"
     printf 'Archive: %s\n' "$(findmnt -rn -M /mnt/sda -o SOURCE,FSTYPE,OPTIONS 2>/dev/null || true)"
     printf 'OS: %s\n' "$(df -h / | awk 'NR==2{print $5 " used, " $4 " free"}')"
@@ -883,6 +902,93 @@ finalize_visit() {
   find "$WRN_DIR" -mindepth 1 -maxdepth 1 -type f ! -name WRN-Service-History.txt -delete || return 1
   echo 'FINALIZED: maintenance folder now contains permanent WRN-Service-History.txt only.'
   ls -la "$WRN_DIR"
+}
+
+# Interactive technician workflow: available only from a real controlling terminal.
+# Declining a critical repair stops before routine maintenance, retaining all reports.
+tech_prompt() {
+  local question="$1" response
+  if [[ ! -r /dev/tty || ! -w /dev/tty ]]; then
+    echo "STOP: interactive confirmation required: $question (no terminal available)" >&2
+    return 2
+  fi
+  while true; do
+    printf '\n%s [Y/N]: ' "$question" > /dev/tty
+    IFS= read -r response < /dev/tty || { echo 'STOP: confirmation input unavailable'; return 2; }
+    case "${response,,}" in
+      y|yes) return 0 ;;
+      n|no) echo 'DECLINED: no action taken for this choice.'; return 1 ;;
+      *) printf 'Please enter Y or N.\n' > /dev/tty ;;
+    esac
+  done
+}
+
+tech_guided_preflight() {
+  local start stop count helper
+  echo '=== TECHNICIAN GUIDED PREFLIGHT ==='
+  if ! findmnt -rn -M /mnt/sda >/dev/null 2>&1; then
+    echo 'STOP: Archive /mnt/sda is not mounted. Normal maintenance cannot proceed.'
+    helper="$WRN_DIR/wrn_archive_recovery.sh"
+    if [[ -f "$helper" && ! -L "$helper" ]]; then
+      if tech_prompt 'Run READ-ONLY archive inspection now?'; then
+        bash "$helper" --inspect || true
+      fi
+    fi
+    echo 'RECOVERY REQUIRES SUPERVISION: no automatic fsck, replay, mount or recording deletion.'
+    return 1
+  fi
+  safe_state || return 1
+  start="$(systemctl show -P DefaultTimeoutStartUSec 2>/dev/null || true)"
+  stop="$(systemctl show -P DefaultTimeoutStopUSec 2>/dev/null || true)"
+  if [[ "$start" == 3s && "$stop" == 3s ]]; then
+    echo 'DETECTED: unsafe factory global systemd start/stop timeout = 3 seconds.'
+    helper="$WRN_DIR/wrn_systemd_timeout_restore.sh"
+    [[ -f "$helper" && ! -L "$helper" ]] || { echo 'STOP: verified timeout helper is missing'; return 1; }
+    bash "$helper" --preview || { echo 'STOP: timeout inspection failed'; return 1; }
+    tech_prompt 'Run the guarded systemd timeout restoration now?' || return 1
+    bash "$helper" --apply || { echo 'STOP: timeout restoration failed'; return 1; }
+    start="$(systemctl show -P DefaultTimeoutStartUSec 2>/dev/null || true)"
+    stop="$(systemctl show -P DefaultTimeoutStopUSec 2>/dev/null || true)"
+    [[ "$start" == '1min 30s' && "$stop" == '1min 30s' ]] || {
+      echo "STOP: post-repair timeouts unexpected: $start / $stop"; return 1;
+    }
+    echo 'PASS: systemd global timeout restoration verified (90 seconds).'
+  elif [[ "$start" == '1min 30s' && "$stop" == '1min 30s' ]]; then
+    echo 'PASS: normal global systemd timeouts (90 seconds).'
+  else
+    echo "STOP: unrecognized systemd global timeouts: $start / $stop. Manual review required."
+    return 1
+  fi
+  count="$(awk '$1 !~ /^#/ && $2 == "/mnt/sda" {n++} END {print n+0}' /etc/fstab)"
+  if [[ "$count" =~ ^[0-9]+$ ]] && (( count > 1 )); then
+    echo "DETECTED: $count active /mnt/sda fstab entries."
+    helper="$WRN_DIR/wrn_fstab_dedup.sh"
+    [[ -f "$helper" && ! -L "$helper" ]] || { echo 'STOP: verified fstab dedup helper missing'; return 1; }
+    bash "$helper" --preview || { echo 'STOP: fstab dedup preview failed'; return 1; }
+    tech_prompt 'Run guarded fstab deduplication now?' || return 1
+    bash "$helper" --apply || { echo 'STOP: fstab dedup failed'; return 1; }
+    systemctl daemon-reload || return 1
+    count="$(awk '$1 !~ /^#/ && $2 == "/mnt/sda" {n++} END {print n+0}' /etc/fstab)"
+    [[ "$count" == 1 ]] || { echo 'STOP: duplicate archive entries remain'; return 1; }
+    echo 'PASS: fstab duplicate repair verified.'
+  elif [[ "$count" != 1 ]]; then
+    echo "STOP: expected exactly one archive fstab entry, found $count"; return 1
+  fi
+  safe_state || return 1
+  echo 'PASS: guided preflight complete; core maintenance may proceed.'
+}
+
+tech_after_apply() {
+  echo
+  echo '=== TECHNICIAN OPERATIONAL VERIFICATION ==='
+  echo 'Before finalizing, personally verify: Ubuntu desktop, live WAVE recording, and playback.'
+  echo 'If cameras are unavailable, or any check fails, select N and retain the reports.'
+  if tech_prompt 'Have you verified ALL three functions and want to clean the maintenance folder?'; then
+    # Already attested via guided Y prompt; do not ask twice.
+    finalize_visit yes
+  else
+    echo 'Reports, scripts and history preserved. Run --finalize after operational verification.'
+  fi
 }
 
 run_apply() {
@@ -937,5 +1043,10 @@ elif [[ "$MODE" == --diagnose ]]; then
 elif [[ "$MODE" == --preview ]]; then
   run_preview
 else
-  run_apply
+  if tech_guided_preflight && run_apply; then
+    tech_after_apply
+  else
+    echo 'STOP: maintenance did not complete; no finalization offered.' >&2
+    exit 1
+  fi
 fi

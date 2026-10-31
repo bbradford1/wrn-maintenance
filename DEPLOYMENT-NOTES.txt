@@ -1,20 +1,33 @@
-WRN maintenance folder pilot — 2026-10-27
+WRN 1.0.0-dev.17-tech-pilot — LAB ONLY — 2026-10-31
 
-Extract ZIP on Windows and upload its individual top-level files to GitHub together (not ZIP). No GitHub updates have been made automatically.
+GitHub branch to create: technician-workflow-pilot
+DO NOT publish on main until physical WRN tests and reboot pass.
 
-FIRST WRN (Ubuntu 22.04, ordinary wave user):
-wget -qO- https://raw.githubusercontent.com/bbradford1/wrn-maintenance/main/installer.sh | bash
-cd ~/Downloads/maintenance
-sudo bash wrn_maintenance.sh --diagnose
-sudo bash wrn_maintenance.sh --preview
-sudo bash wrn_remaining_os_space.sh
+Upload the individual files at the top level of the GitHub branch, not the ZIP or TAR.GZ:
+  installer.sh
+  wrn_maintenance.sh
+  wrn_legacy.sh
+  wrn_systemd_timeout_restore.sh
+  wrn_fstab_dedup.sh
+  wrn_archive_recovery.sh
+  wrn_os_archive_cleanup.sh
+  wrn_remaining_os_space.sh
+  README.md, CHANGELOG.md, DEPLOYMENT-NOTES.txt, TEST-PLAN.md, SHA256SUMS.txt
 
-Fetch three text reports from /home/wave/Downloads/maintenance through Cockpit. Do not apply or delete until reports reviewed. No screenshot required.
+The following obsolete file is intentionally NOT in this release:
+  wrn_downloads_cleanup.sh
 
-NOTE: installer pinned hashes apply to these exact bundle versions. Upload all files together or downloads fail verification. Do not upload customer reports.
+TEST BRANCH COMMAND (after branch upload):
+  wget -qO- https://raw.githubusercontent.com/bbradford1/wrn-maintenance/technician-workflow-pilot/installer.sh | bash
+  cd /home/wave/Downloads/maintenance
+  sudo bash wrn_maintenance.sh --apply
 
-Cleanup after verification:
-cd ~/Downloads/maintenance && sudo bash wrn_downloads_cleanup.sh --preview
-cd ~/Downloads/maintenance && sudo bash wrn_downloads_cleanup.sh --delete
+For local pilot, use --offline-bundle with the extracted directory (no GitHub), or
+--local-source and --target-dir for a separate staging location.
 
-Unrelated Downloads data and the maintenance folder itself are preserved. Older field scripts manually downloaded to ~/Downloads are not automatically moved.
+Stop on installer checksum failure; upload matching installer and scripts together.
+Preserve backups and reports when guided repair stops. Recording deletion is never automatic.
+A normal technician must independently verify the desktop, new recording and playback
+before confirming finalization; N retains all diagnostic artifacts.
+
+Do not upload field reports, server history or customer identifiers to a public GitHub repo.

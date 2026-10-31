@@ -1,90 +1,57 @@
-# Hanwha WRN Maintenance
+# Hanwha WRN Maintenance — technician workflow pilot (dev.17)
 
-**Status:** Supervised pilot — October 27, 2026  
-**Supported for maintenance:** Ubuntu 22.04 LTS WRN servers  
-**Current pilot:** `wrn_maintenance.sh` v1.0.0-dev.10-pilot
+**LAB / TEST BRANCH ONLY. NOT YET FIELD-QUALIFIED.** Ubuntu 22.04 maintenance; Ubuntu 18.04 diagnostic-only.
 
-This toolkit helps technicians maintain Hanwha WAVE recording servers, reclaim space on the operating-system drive, and document what was done. It is intended to be simple to run while keeping recording and the local desktop working.
+This is a candidate based on the 12 scripts/documentation files supplied October 31, 2026. The existing guarded maintenance engine and supporting helper logic are retained; the primary changes are an interactive preflight and a prompted finalizer. The lab previously passed fresh-image maintenance and reboot tests with dev.11, **not yet with this dev.17 candidate**.
 
-> **Supervised testing only.** The combined workflow has been tested on a WRN that was already cleaned. Test the full installation and cleanup sequence on another WRN before approving wider rollout.
+## Target technician workflow after test-branch upload
 
-## What it does
-
-- Checks the WRN's condition, including the WAVE service and recording archive.
-- Cleans up selected old logs, unused Snap revisions, and temporary files.
-- Checks the archive's startup configuration and makes only guarded, approved corrections.
-- Removes approved, unnecessary Thunderbird and LibreOffice packages and their leftover dependencies **only when safety checks allow it**.
-- Records the work and before/after OS usage in a permanent service-history file.
-- Preserves the existing automatic-update settings. **It does not install updates.**
-
-The maintenance script does **not** intentionally restart WAVE, reboot the WRN, remove recordings, or remove the Ubuntu desktop. If the system differs from the tested configuration or a safety check fails, the script should stop rather than force a change.
-
-## Technician quick start — Ubuntu 22.04
-
-Open the terminal as the normal `wave` user. **Do not use `sudo` for the installer.**
-
-**1. Download the verified maintenance script:**
+Run the installer as the normal `wave` user (not sudo):
 
 ```bash
-wget -qO- https://raw.githubusercontent.com/bbradford1/wrn-maintenance/main/installer.sh | bash
+wget -qO- https://raw.githubusercontent.com/bbradford1/wrn-maintenance/technician-workflow-pilot/installer.sh | bash
 ```
 
-The installer places the script in `/home/wave/Downloads/maintenance/` and checks its integrity. It does not run maintenance automatically. If the download or verification fails, stop and report the error.
-
-**2. Run maintenance:**
+Then run maintenance:
 
 ```bash
 cd /home/wave/Downloads/maintenance
 sudo bash wrn_maintenance.sh --apply
 ```
 
-The script performs its approved tasks automatically, without asking technicians to confirm each package removal. It still checks for unexpected conditions and may stop to protect the WRN.
+The installer downloads and checksum-verifies six scripts on Ubuntu 22.04, but **does not run maintenance**. The maintenance script checks effective global systemd timeouts. If the exact factory 3s/3s values are present, the technician can select Y to preview/apply the existing guarded restoration helper. After verifying 90s/90s, maintenance continues. If duplicate active `/mnt/sda` entries are present, it offers the guarded dedup helper and checks the result. The core maintenance engine then executes its existing guarded archive UUID/timeouts, logging, Snap and package routines.
 
-**3. Verify the WRN:**
-
-Confirm that the Ubuntu desktop works, WAVE is accessible, **new video is recording**, and **recent video plays back**. Check the maintenance report for any warnings. Do not finalize if something is wrong.
-
-**4. Finalize the visit:**
-
-```bash
-sudo bash wrn_maintenance.sh --finalize
-```
-
-Run this command **only after** verifying the desktop, recording, and playback. It records the technician's confirmation and removes temporary files from the maintenance folder, leaving:
-
-```text
-/home/wave/Downloads/maintenance/WRN-Service-History.txt
-```
-
-This history stays on the WRN for the next service visit and includes previous visits. If a run fails, **leave its reports in place** for troubleshooting.
-
-## Optional: Check before making changes
-
-For a read-only check, use:
+After successful maintenance, the technician is asked whether the Ubuntu desktop, new WAVE recording and playback have all been verified and whether to clean the maintenance folder. If Y, finalization proceeds without another prompt; a separately invoked `--finalize` asks for its own explicit attestation. N preserves scripts/reports; later manual cleanup remains available:
 
 ```bash
 cd /home/wave/Downloads/maintenance
-sudo bash wrn_maintenance.sh --preview
+sudo bash wrn_maintenance.sh --finalize
 ```
 
-You can also use `--diagnose` to collect system information without applying maintenance.
+If the archive is not mounted, the script **does not automatically recover**. It may offer a **read-only** inspection through `wrn_archive_recovery.sh --inspect` and then stops. Recovery (`--recover`) requires a separate supervised decision after reviewing disk identity, filesystem and WAVE recording state. OS fallback video deletion is never automated. Do not delete WAVE SQLite databases, metadata, recordings or archives via routine maintenance.
 
-## Important precautions
+If the script is run without a controlling terminal and an interactive decision is needed, it stops safely rather than guessing. Use `--diagnose` or `--preview` to collect read-only information without prompts. A Y/N answer is not a substitute for actually observing new video recording and playback; if there are no cameras, decline finalization.
 
-- **Never assume an active WAVE service proves video is recording.** Verify actual footage and playback.
-- If an archive drive is disconnected, missing, or unhealthy, stop and investigate separately; routine maintenance will not repair an unmounted archive automatically.
-- Some WRNs have different installed applications. Package cleanup is guarded and may be skipped or stopped when the proposed removals differ.
-- Ubuntu automatic-update settings are **left as found**. The script does not enable updates or perform package upgrades. The Snap refresh hold is part of the existing maintenance policy.
-- Do not reboot or delete recording files just to finish routine maintenance.
+## Test offline, before GitHub
 
-## Other tools and older WRNs
+Upload/extract this candidate into a **separate directory** on the lab WRN (not the production maintenance directory). Check `SHA256SUMS.txt`, then install via:
 
-**Ubuntu 18.04:** Not supported by the dev.10 pilot installer. The separate `wrn_legacy.sh` utility is for **diagnostics only**; do not run maintenance `--apply` on Ubuntu 18.04.
+```bash
+cd /home/wave/Downloads/WRN-Technician-Workflow-Pilot-20261031
+sha256sum -c SHA256SUMS.txt
+bash installer.sh --local-source "$PWD" --target-dir /home/wave/Downloads/WRN-Tech-Pilot-Test
+```
 
-**OS recording cleanup:** The separate `wrn_os_archive_cleanup.sh` utility can permanently delete recordings that ended up on the OS drive. **It is not part of routine maintenance and is never run automatically.** Use it only with explicit approval after reviewing the footage and confirming the correct archive is recording.
+This verifies local installation without replacing production maintenance scripts. **Do not execute `--apply` from the isolated test folder**: the production script intentionally expects `/home/wave/Downloads/maintenance`. Once the candidate is reviewed and prior evidence is backed up, perform the live lab test with `--offline-bundle "$PWD"` to publish to that standard directory, then run `sudo bash wrn_maintenance.sh --apply` from there.
 
-## For the person updating GitHub
+## Guardrails
 
-Publish matching versions of `installer.sh` and `wrn_maintenance.sh` together: the installer verifies the maintenance script's SHA-256 checksum. If the script changes, the installer checksum must be updated as well. The README may be updated independently.
+- Production GitHub `main` is not updated by this package.
+- No automatic WAVE restart, reboot, archive format, fsck, journal replay or recording deletion.
+- Archive helpers retain their independent safeguards.
+- The known `isc-dhcp-server6.service` no-subnet failure is reported but not disabled or modified.
+- Review the WAVE Storage Management configuration: analytics and motion metadata must not unintentionally use the small OS filesystem. The script cannot confirm the client/UI setting.
+- Source and checksum updates must be committed **together** on the test branch; any mismatch causes installation failure.
+- Do not publish customer/device reports, serial numbers, service histories or test files in the public repository.
 
-**Do not upload WRN reports, serial numbers, customer details, or service histories to this public repository.**
+See `TEST-PLAN.md` and `DEPLOYMENT-NOTES.txt`.
