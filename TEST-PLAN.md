@@ -39,3 +39,13 @@
 7. Promote to GitHub `main` only after successful field-like qualification and explicit approval.
 
 **Not yet verified:** dev.17 runtime on the physical WRN, the published GitHub branch, or live WAVE recording/playback on this lab unit.
+
+## Test 063 — dev.18 safe Y/N order (no reimage)
+
+1. On the already-maintained lab WRN, install the updated test-branch toolkit with the installer; confirm all script checksums verify.
+2. Run `sudo bash wrn_maintenance.sh --prompt-preview` and enter `N`. The instructions MUST appear above the final `[Y/N]:` question. No reports are removed.
+3. Repeat `--prompt-preview` and enter `Y`. Preview MUST still perform NO cleanup.
+4. Verify `WRN-Service-History.txt` and prior maintenance reports remain untouched.
+5. Finalization in `--apply` or `--finalize` still requires legitimate live recording/playback verification.
+
+The new mode does not rerun cleanup or repair, and does not require a reimage.

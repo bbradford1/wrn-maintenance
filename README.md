@@ -55,3 +55,14 @@ This verifies local installation without replacing production maintenance script
 - Do not publish customer/device reports, serial numbers, service histories or test files in the public repository.
 
 See `TEST-PLAN.md` and `DEPLOYMENT-NOTES.txt`.
+
+## dev.18: verifying final prompt without repeating maintenance
+
+After installing the updated test-branch package, run:
+
+```bash
+cd /home/wave/Downloads/maintenance
+sudo bash wrn_maintenance.sh --prompt-preview
+```
+
+The `--prompt-preview` mode displays the same operational-verification notice and Y/N question as `--apply`, but **never** performs finalization, changes the machine, or deletes files, regardless of whether you choose `Y` or `N`. Run it once with `N` and once with `Y` if desired. The actual `--apply` and `--finalize` modes still require genuine desktop, new recording and playback verification prior to cleanup.

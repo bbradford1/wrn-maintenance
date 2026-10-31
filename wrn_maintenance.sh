@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# WRN Maintenance 1.0.0-dev.17-tech-pilot - PRE-PRODUCTION / LAB ONLY
+# WRN Maintenance 1.0.0-dev.18-tech-pilot - PRE-PRODUCTION / LAB ONLY
 # Ubuntu 22.04. --diagnose and --preview are read-only; --apply performs conditional maintenance.
 # No WAVE/network restart, remount, fsck, reboot, or video cleanup.
-WRN_SCRIPT_VERSION='1.0.0-dev.17-tech-pilot'
+WRN_SCRIPT_VERSION='1.0.0-dev.18-tech-pilot'
 MODE="${1:---diagnose}"
 [[ $# -le 1 ]] || { echo 'Only one option permitted' >&2; exit 2; }
 case "$MODE" in
-  --diagnose|--preview|--apply|--package-preview|--tidy-preview|--tidy|--finalize) ;;
+  --diagnose|--preview|--apply|--package-preview|--tidy-preview|--tidy|--finalize|--prompt-preview) ;;
   --version) echo "$WRN_SCRIPT_VERSION"; exit 0 ;;
-  --help|-h) printf 'WRN Maintenance %s\nUsage: sudo bash wrn_maintenance.sh [--diagnose|--preview|--package-preview|--apply|--finalize|--version]\n--apply is for supervised pre-production validation only.\n' "$WRN_SCRIPT_VERSION"; exit 0 ;;
-  *) echo 'Usage: --diagnose, --preview, --package-preview, --apply, --finalize' >&2; exit 2 ;;
+  --help|-h) printf 'WRN Maintenance %s\nUsage: sudo bash wrn_maintenance.sh [--diagnose|--preview|--package-preview|--apply|--finalize|--prompt-preview|--version]\n--apply is for supervised pre-production validation only.\n' "$WRN_SCRIPT_VERSION"; exit 0 ;;
+  *) echo 'Usage: --diagnose, --preview, --package-preview, --apply, --finalize, --prompt-preview' >&2; exit 2 ;;
 esac
 [[ $EUID -eq 0 ]] || { echo 'Run with sudo' >&2; exit 2; }
 . /etc/os-release
@@ -77,7 +77,7 @@ ARCHIVE_MOUNTED='NO'
 if findmnt -rn -M "$ARCHIVE_MOUNT" >/dev/null 2>&1; then ARCHIVE_MOUNTED='YES'; fi
 
 section 'REPORT INFORMATION'
-printf 'UTC: %s\nHostname: %s\nCollector: WRN Maintenance 1.0.0-dev.17-tech-pilot\nOperator: %s\nMode: READ-ONLY\nArchive selected: %s\nSelection method: %s\nArchive mounted at /mnt/sda: %s\n' "$(date -u -Is)" "$HOST" "$OPERATOR" "${ARCHIVE_DEV:-UNRESOLVED}" "${ARCHIVE_MATCH:-not determined}" "$ARCHIVE_MOUNTED" >> "$REPORT"
+printf 'UTC: %s\nHostname: %s\nCollector: WRN Maintenance 1.0.0-dev.18-tech-pilot\nOperator: %s\nMode: READ-ONLY\nArchive selected: %s\nSelection method: %s\nArchive mounted at /mnt/sda: %s\n' "$(date -u -Is)" "$HOST" "$OPERATOR" "${ARCHIVE_DEV:-UNRESOLVED}" "${ARCHIVE_MATCH:-not determined}" "$ARCHIVE_MOUNTED" >> "$REPORT"
 run 'OS, KERNEL, TIME, UPTIME' 5 bash -c 'grep -E "^(PRETTY_NAME|VERSION_ID)=" /etc/os-release; printf "Kernel: "; uname -r; printf "Local time: "; date -Is; printf "Boot: "; uptime -s; uptime -p'
 run 'OS DISK CAPACITY' 5 df -hT /
 run 'OS JOURNAL UTILIZATION (READ-ONLY)' 8 bash -c 'journalctl --disk-usage 2>&1; for p in /var/log/journal /run/log/journal; do if [[ -d "$p" ]]; then du -sh "$p" 2>&1; else echo "$p: not present"; fi; done'
@@ -334,7 +334,7 @@ if [[ "$OPERATOR" != root ]]; then
 fi
 chmod 644 "$REPORT"
 chown wave:wave "$REPORT" 2>/dev/null || true
-printf '\n========== WRN MAINTENANCE 1.0.0-dev.17-tech-pilot | DIAGNOSTICS ========\n'
+printf '\n========== WRN MAINTENANCE 1.0.0-dev.18-tech-pilot | DIAGNOSTICS ========\n'
 printf 'Host: %s\nReport: %s\n' "$HOST" "$REPORT"
 printf 'OS: '; df -h / | awk 'NR==2 {print $5 " used; " $4 " free"}'
 printf 'Archive: %s (%s)\n' "$ARCHIVE_MOUNTED" "${ARCHIVE_DEV:-UNRESOLVED}"
@@ -876,9 +876,18 @@ PY_HISTORY
   if find "$WRN_DIR" -mindepth 1 -maxdepth 1 -type d | grep -q .; then
     echo 'STOP: subdirectories present; inspect manually'; return 1
   fi
-  echo 'FINALIZATION: all reports and scripts in the maintenance folder will be deleted.'
-  echo 'Do NOT confirm if desktop, new recording and playback have not all been tested.'
   if [[ "$already_confirmed" != yes ]]; then
+    # Print the warnings and question through the SAME controlling terminal.
+    # The maintenance log uses a separate tee pipeline, which can otherwise
+    # reorder stdout and /dev/tty and show the question before its warnings.
+    if [[ -w /dev/tty ]]; then
+      printf '\n%s\n%s\n' \
+        'FINALIZATION: all reports and scripts in the maintenance folder will be deleted.' \
+        'Do NOT confirm if desktop, new recording and playback have not all been tested.' > /dev/tty
+    else
+      echo 'STOP: a controlling terminal is required for finalization.' >&2
+      return 2
+    fi
     tech_prompt 'I personally verified desktop, new WAVE recording AND playback. Finalize now?' || {
       echo 'Finalization declined or unavailable; no files deleted.'; return 1;
     }
@@ -978,16 +987,34 @@ tech_guided_preflight() {
   echo 'PASS: guided preflight complete; core maintenance may proceed.'
 }
 
+# All pre-prompt instructions and the actual question go through /dev/tty,
+# avoiding interleaving with the tee-backed maintenance transcript.
+tech_verification_notice() {
+  [[ -w /dev/tty ]] || { echo 'STOP: controlling terminal unavailable' >&2; return 2; }
+  printf '\n%s\n%s\n%s\n' \
+    '=== TECHNICIAN OPERATIONAL VERIFICATION ===' \
+    'Before finalizing, personally verify: Ubuntu desktop, live WAVE recording, and playback.' \
+    'If cameras are unavailable, or any check fails, select N and retain the reports.' > /dev/tty
+}
+
 tech_after_apply() {
-  echo
-  echo '=== TECHNICIAN OPERATIONAL VERIFICATION ==='
-  echo 'Before finalizing, personally verify: Ubuntu desktop, live WAVE recording, and playback.'
-  echo 'If cameras are unavailable, or any check fails, select N and retain the reports.'
+  tech_verification_notice || return 2
   if tech_prompt 'Have you verified ALL three functions and want to clean the maintenance folder?'; then
     # Already attested via guided Y prompt; do not ask twice.
     finalize_visit yes
   else
     echo 'Reports, scripts and history preserved. Run --finalize after operational verification.'
+  fi
+}
+
+# LAB-ONLY, NON-MUTATING: exercise the real terminal notice and Y/N control,
+# but never run finalization regardless of the answer. No logging or files touched.
+tech_prompt_preview() {
+  tech_verification_notice || return 2
+  if tech_prompt 'Have you verified ALL three functions and want to clean the maintenance folder?'; then
+    printf '\nPROMPT PREVIEW ONLY: Y accepted; no finalization or cleanup performed.\n' > /dev/tty
+  else
+    printf '\nPROMPT PREVIEW ONLY: N/decline accepted; no finalization or cleanup performed.\n' > /dev/tty
   fi
 }
 
@@ -1025,7 +1052,7 @@ run_apply() {
   echo '=== FINAL FREE SPACE ==='; df -h /
   record_service_history "$INITIAL_SPACE" "$(df -h / | awk 'NR==2{print $5 " used, " $4 " free"}')" 0 || return 1
   echo "PERMANENT HISTORY UPDATED — $WRN_DIR/WRN-Service-History.txt"
-  echo 'PILOT COMPLETE: verify desktop and WAVE recording/playback, then run --finalize.'
+  echo 'PILOT COMPLETE: verify desktop and WAVE recording/playback before finalization.'
   echo 'Logs and scripts are intentionally preserved until verification and finalization.' 
   echo "Maintenance log: $WRN_LOG"
 }
@@ -1038,6 +1065,8 @@ elif [[ "$MODE" == --tidy ]]; then
   tidy_reports apply
 elif [[ "$MODE" == --finalize ]]; then
   finalize_visit
+elif [[ "$MODE" == --prompt-preview ]]; then
+  tech_prompt_preview
 elif [[ "$MODE" == --diagnose ]]; then
   collect_diagnostics
 elif [[ "$MODE" == --preview ]]; then

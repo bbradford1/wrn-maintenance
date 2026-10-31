@@ -31,3 +31,5 @@ A normal technician must independently verify the desktop, new recording and pla
 before confirming finalization; N retains all diagnostic artifacts.
 
 Do not upload field reports, server history or customer identifiers to a public GitHub repo.
+
+DEV.18: Prompt-order adjustment only plus a non-mutating --prompt-preview mode. Do not repeat --apply solely to test the prompt. Do not run --finalize without verified new recording and playback.

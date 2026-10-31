@@ -13,3 +13,9 @@
 
 ## Earlier development
 See the uploaded October 27, 2026 `CHANGELOG.md` for historical pilot notes. This candidate does not rewrite those previously validated helper scripts.
+
+## 1.0.0-dev.18-tech-pilot — technician prompt ordering
+- Output end-of-visit verification instructions through the controlling terminal (`/dev/tty`) before the Y/N question.
+- Use the same terminal output for standalone `--finalize` warnings.
+- Add non-mutating `--prompt-preview` so prompt order and both Y/N responses can be verified without reimaging or reapplying maintenance.
+- No changes to core cleanup, filesystem, recovery, or WAVE behavior.

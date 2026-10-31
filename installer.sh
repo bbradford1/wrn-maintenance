@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Hanwha WRN installer v1.0.0-dev.17-TECH-WORKFLOW-PILOT
+# Hanwha WRN installer v1.0.0-dev.18-TECH-WORKFLOW-PILOT
 # Download-only by default. Never starts maintenance, recovery or cleanup.
 # Production: bash installer.sh
 # Lab-only: bash installer.sh --local-source PATH --target-dir PATH
 set -Eeuo pipefail
 export LC_ALL=C
 umask 077
-VERSION='1.0.0-dev.17-TECH-WORKFLOW-PILOT'
+VERSION='1.0.0-dev.18-TECH-WORKFLOW-PILOT'
 BASE_URL='https://raw.githubusercontent.com/bbradford1/wrn-maintenance/technician-workflow-pilot'
 LOCAL_SOURCE=''
 TARGET_DIR=''
@@ -56,7 +56,7 @@ mkdir -p -- "$TARGET_DIR"
 STAGE="$(mktemp -d "$TARGET_DIR/.wrn-install-stage.XXXXXXXX")" || fail 'Cannot make secure staging folder.'
 trap 'rm -rf -- "$STAGE"' EXIT
 expected_sha(){ case "$1" in
-  wrn_maintenance.sh) printf "%s\n" "17c944ecc66c0491f0768fe008bec42c04470f95a14c965c9f847395cd00e8cb";;
+  wrn_maintenance.sh) printf "%s\n" "45b7aabf2bb92fc180c9f15a395ea35a55b7f912030a9bbaee4d7ef63c323224";;
   wrn_legacy.sh) printf "%s\n" "1dd0a5920eed0b39f6102ed351c12fbc59ebf21aeafde99ea142f2731cc423ff";;
   wrn_os_archive_cleanup.sh) printf "%s\n" "aba17d475f22b907c961f4ee855f0106fda9d16ac317ef50b4119236796d8193";;
   wrn_remaining_os_space.sh) printf "%s\n" "6e122ce3c6694aa0d49d8fb8411dd1e8a049f2d7303c31bfa5b2334f14b821b4";;
