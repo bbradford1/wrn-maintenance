@@ -57,3 +57,11 @@ Dev.19.4 engineering test: `sudo bash wrn_maintenance.sh --dmesg-audit`, then su
 - Apply ONLY after verifying correct parent relationship and fstab backup.
 - Verify both mounted archives and fstab; controlled reboot only after successful checks.
 - Negative tests: unrelated disk mismatch, mounted OS disk, read-only archive, duplicate fstab target, absent archive, UUID duplicate.
+
+
+## Tests 091–093 — dev.19.6 final lab qualification
+
+- **091: Read-only summary:** reinstall pilot scripts, run `--version` and `--diagnose`; confirm /mnt/sda and /mnt/sdb shown once, absent /mnt/sdc and /mnt/sdd not counted, and detailed report includes both. Ensure no mounts/configurations change.
+- **092: Integrated positive repair:** using approved *lab only* setup, deliberately reintroduce the verified partition-parent fstab mismatch on /mnt/sdb while preserving the live mounted /dev/sdb1 and original fstab backup; verify standalone audit proposes the one correction and the **normal main --apply** repairs it. Do not reformat, unmount or change /mnt/sda. Verify one backup, corrected UUID, 0 errors from `findmnt --verify`, and zero corrections on follow-up audit.
+- **093: Finalize and reboot:** verify desktop, WAVE recording/playback, both archives RW after reboot, then finalize and confirm only WRN-Service-History.txt remains.
+- Never promote to main until all relevant safety gates and technician instructions have been independently reviewed.

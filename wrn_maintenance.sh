@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# WRN Maintenance 1.0.0-dev.19.4-tech-pilot - PRE-PRODUCTION / LAB ONLY
+# WRN Maintenance 1.0.0-dev.19.6-tech-pilot - PRE-PRODUCTION / LAB ONLY
 # Ubuntu 22.04. --diagnose and --preview are read-only; --apply performs conditional maintenance.
 # No WAVE/network restart, remount, fsck, reboot, or video cleanup.
-WRN_SCRIPT_VERSION='1.0.0-dev.19.4-tech-pilot'
+WRN_SCRIPT_VERSION='1.0.0-dev.19.6-tech-pilot'
 MODE="${1:---diagnose}"
 [[ $# -le 1 ]] || { echo 'Only one option permitted' >&2; exit 2; }
 case "$MODE" in
@@ -76,8 +76,37 @@ ARCHIVE_FS=''
 ARCHIVE_MOUNTED='NO'
 if findmnt -rn -M "$ARCHIVE_MOUNT" >/dev/null 2>&1; then ARCHIVE_MOUNTED='YES'; fi
 
+# Information-only status; do not infer recording health from mount presence.
+# Exact mount matching avoids treating an ordinary OS directory as an archive.
+archive_status_summary() {
+  local mp src fs opts size count=0
+  for mp in /mnt/sda /mnt/sdb /mnt/sdc /mnt/sdd; do
+    if ! findmnt -rn -M "$mp" >/dev/null 2>&1; then
+      continue
+    fi
+    count=$((count + 1))
+  done
+  printf 'Archives mounted: %d\n' "$count"
+  for mp in /mnt/sda /mnt/sdb /mnt/sdc /mnt/sdd; do
+    if ! findmnt -rn -M "$mp" >/dev/null 2>&1; then
+      continue
+    fi
+    src="$(findmnt -rn -M "$mp" -o SOURCE 2>/dev/null || true)"
+    fs="$(findmnt -rn -M "$mp" -o FSTYPE 2>/dev/null || true)"
+    opts="$(findmnt -rn -M "$mp" -o OPTIONS 2>/dev/null || true)"
+    size="$(df -h --output=size "$mp" 2>/dev/null | awk 'NR==2 {print $1}')"
+    [[ -n "$size" ]] || size='unknown'
+    case ",$opts," in
+      *,rw,*) printf '%s  %s  %s  RW  %s\n' "$mp" "${src:-unknown}" "${fs:-unknown}" "$size" ;;
+      *,ro,*) printf '%s  %s  %s  RO  %s\n' "$mp" "${src:-unknown}" "${fs:-unknown}" "$size" ;;
+      *) printf '%s  %s  %s  UNKNOWN-MODE  %s\n' "$mp" "${src:-unknown}" "${fs:-unknown}" "$size" ;;
+    esac
+  done
+  printf 'Note: mounted status does not establish WAVE recording or playback health.\n'
+}
+
 section 'REPORT INFORMATION'
-printf 'UTC: %s\nHostname: %s\nCollector: WRN Maintenance 1.0.0-dev.19.4-tech-pilot\nOperator: %s\nMode: READ-ONLY\nArchive selected: %s\nSelection method: %s\nArchive mounted at /mnt/sda: %s\n' "$(date -u -Is)" "$HOST" "$OPERATOR" "${ARCHIVE_DEV:-UNRESOLVED}" "${ARCHIVE_MATCH:-not determined}" "$ARCHIVE_MOUNTED" >> "$REPORT"
+printf 'UTC: %s\nHostname: %s\nCollector: WRN Maintenance 1.0.0-dev.19.6-tech-pilot\nOperator: %s\nMode: READ-ONLY\nArchive selected: %s\nSelection method: %s\nArchive mounted at /mnt/sda: %s\n' "$(date -u -Is)" "$HOST" "$OPERATOR" "${ARCHIVE_DEV:-UNRESOLVED}" "${ARCHIVE_MATCH:-not determined}" "$ARCHIVE_MOUNTED" >> "$REPORT"
 run 'OS, KERNEL, TIME, UPTIME' 5 bash -c 'grep -E "^(PRETTY_NAME|VERSION_ID)=" /etc/os-release; printf "Kernel: "; uname -r; printf "Local time: "; date -Is; printf "Boot: "; uptime -s; uptime -p'
 run 'OS DISK CAPACITY' 5 df -hT /
 run 'OS JOURNAL UTILIZATION (READ-ONLY)' 8 bash -c 'journalctl --disk-usage 2>&1; for p in /var/log/journal /run/log/journal; do if [[ -d "$p" ]]; then du -sh "$p" 2>&1; else echo "$p: not present"; fi; done'
@@ -86,6 +115,8 @@ run 'LOG AND WAVE DIRECTORY CAPACITY (READ-ONLY)' 12 bash -c 'for p in /var/log 
 run 'WAVE STORAGE PATH AND THRESHOLD CONTEXT' 8 bash -c 'df -hT / /opt/hanwha/mediaserver/var/data 2>&1; findmnt -T /opt/hanwha/mediaserver/var/data -o TARGET,SOURCE,FSTYPE,OPTIONS 2>&1'
 run 'BLOCK DEVICES / MODEL / UUID / MOUNTS' 6 lsblk -o NAME,SIZE,MODEL,SERIAL,TRAN,FSTYPE,UUID,MOUNTPOINTS,RO
 run 'ARCHIVE MOUNT AND SPACE' 5 bash -c 'if findmnt -rn -M /mnt/sda; then df -hT /mnt/sda; else echo "NOT MOUNTED at /mnt/sda (archive df skipped; /mnt/sda may reside on OS filesystem)"; fi'
+section 'ALL ARCHIVES SUMMARY (READ-ONLY)'
+archive_status_summary >> "$REPORT"
 run 'ARCHIVE FSTAB ENTRY' 5 awk '$2=="/mnt/sda" && $1 !~ /^#/ {print}' /etc/fstab
 run 'FSTAB DUPLICATE AND TIMEOUT AUDIT (READ-ONLY)' 5 awk '
   $1 !~ /^#/ && NF>=4 {
@@ -334,11 +365,10 @@ if [[ "$OPERATOR" != root ]]; then
 fi
 chmod 644 "$REPORT"
 chown wave:wave "$REPORT" 2>/dev/null || true
-printf '\n========== WRN MAINTENANCE 1.0.0-dev.19.4-tech-pilot | DIAGNOSTICS ========\n'
+printf '\n========== WRN MAINTENANCE 1.0.0-dev.19.6-tech-pilot | DIAGNOSTICS ========\n'
 printf 'Host: %s\nReport: %s\n' "$HOST" "$REPORT"
 printf 'OS: '; df -h / | awk 'NR==2 {print $5 " used; " $4 " free"}'
-printf 'Archive: %s (%s)\n' "$ARCHIVE_MOUNTED" "${ARCHIVE_DEV:-UNRESOLVED}"
-printf 'Mount: %s\n' "$(findmnt -rn -M /mnt/sda -o SOURCE,FSTYPE,OPTIONS 2>/dev/null || echo 'NOT MOUNTED')"
+archive_status_summary
 printf 'WAVE service: '; systemctl is-active hanwha-mediaserver.service 2>/dev/null || true
 printf 'SMART: '; grep -m1 'SMART overall-health self-assessment test result:' "$REPORT" || echo 'See report'
 printf 'Diagnostic report collected. This diagnostic operation did not modify services, mounts or recordings.\n==========================================\n'

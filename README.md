@@ -75,3 +75,8 @@ Dev.19.4 engineering test: `sudo bash wrn_maintenance.sh --dmesg-audit`, then su
 
 ### dev.19.5 partition-backed archive lab qualification
 An ext4 archive on a disk partition (e.g. /dev/sdb1) may be mounted at /mnt/sdb even when factory fstab references /dev/sdb. The multi-drive helper only accepts this exception if block-device metadata verifies /dev/sdb1 belongs directly to /dev/sdb, then proposes an ext4 UUID entry. Audit first; do not run apply on customer recorders until qualified.
+
+
+### dev.19.6 archive reporting
+
+`sudo bash wrn_maintenance.sh --diagnose` prints all currently mounted archive directories `/mnt/sda`–`/mnt/sdd`. The detailed report contains an **ALL ARCHIVES SUMMARY (READ-ONLY)** section. RW mount status is not a substitute for live recording and playback verification in WAVE. The archive repair helper and operating commands are unchanged.

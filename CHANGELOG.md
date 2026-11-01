@@ -1,3 +1,12 @@
+## dev.19.6 — Multi-drive diagnostic display only (lab release candidate)
+
+- Short `--diagnose` and normal maintenance diagnostic summaries now list all **actually mounted** `/mnt/sda`–`/mnt/sdd` archives, with mount source, filesystem type, RW/RO status and size. The text explicitly avoids equating a mount with healthy recording.
+- Detailed diagnostic report receives a matching **ALL ARCHIVES SUMMARY (READ-ONLY)** section. Existing primary-archive deep diagnostics are retained unchanged.
+- No modification to archive repair helper, preflight rules, fstab correction, Snap/dmesg cleanup, media, or technician command sequence.
+- Updated installer SHA-256 pin for revised main script and package checksum manifest.
+- Test 091: audit display on lab two-drive WRN; Test 092: negative-to-positive main-flow repair on lab; Test 093: full workflow + reboot + recording/playback + finalize.
+- Remain on `technician-workflow-pilot`; do not publish to `main` until approved final qualification.
+
 ## dev.19.4 — isolated guarded dmesg retry (LAB TEST)
 
 - Added `--dmesg-apply` engineering-only entry point to the existing guarded recovery function. It does not invoke full maintenance. Run after `--dmesg-audit`, on authorized systems only.
