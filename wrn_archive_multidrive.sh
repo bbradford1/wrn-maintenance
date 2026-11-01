@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# WRN multi-archive fstab normalization - dev.19 LAB PILOT.
+# WRN multi-archive fstab normalization - dev.19.5 LAB PILOT.
 # No disk mounting, unmounting, fsck, video deletion, server restart or formatting.
 set -Eeuo pipefail
 export LC_ALL=C
@@ -8,7 +8,7 @@ MODE=${1:---audit}
 [[ ${EUID:-$(id -u)} == 0 ]] || { echo 'STOP: sudo required' >&2; exit 2; }
 . /etc/os-release
 [[ ${ID:-} == ubuntu && ${VERSION_ID:-} == 22.04 ]] || { echo 'STOP: Ubuntu 22.04 only' >&2; exit 2; }
-for c in awk blkid findmnt readlink mktemp cp cmp mv chmod chown lsblk; do command -v "$c" >/dev/null || { echo "STOP: missing $c" >&2; exit 2; }; done
+for c in awk blkid findmnt readlink mktemp cp cmp mv chmod chown lsblk tr; do command -v "$c" >/dev/null || { echo "STOP: missing $c" >&2; exit 2; }; done
 fstab=/etc/fstab
 [[ -f $fstab && ! -L $fstab ]] || { echo 'STOP: fstab not a regular file' >&2; exit 2; }
 [[ -d /mnt && ! -L /mnt ]] || { echo 'STOP: unexpected /mnt' >&2; exit 2; }
@@ -59,7 +59,28 @@ for mp in /mnt/sda /mnt/sdb /mnt/sdc /mnt/sdd; do
   old=$(awk -v mp="$mp" '$1 !~ /^#/ && $2==mp {print;exit}' "$fstab")
   read -r oldspec oldmp oldtype oldopts dump pass extra <<< "$old"
   [[ -z ${extra:-} && $oldmp == "$mp" && ( $oldtype == ext4 || $oldtype == auto ) ]] || { echo "STOP: unexpected $mp fstab structure"; exit 1; }
-  [[ $oldspec == "$src" || $oldspec == "$dev" || $oldspec == "UUID=$uuid" ]] || { echo "STOP: $mp configured device differs from mounted source"; exit 1; }
+  # A factory whole-disk fstab reference may identify the parent of a mounted
+  # partition-backed ext4 archive (e.g. /dev/sdb -> /dev/sdb1).  Accept this
+  # ONLY when the mounted block device is a direct child of that exact disk.
+  # A device-name prefix match alone is never sufficient.
+  if [[ $oldspec != "$src" && $oldspec != "$dev" && $oldspec != "UUID=$uuid" ]]; then
+    [[ $oldspec == /dev/* && -b $oldspec ]] || { echo "STOP: $mp configured device differs from mounted source"; exit 1; }
+    parent=$(readlink -f "$oldspec")
+    [[ $(lsblk -dn -o TYPE "$dev" | tr -d '[:space:]') == part ]] || { echo "STOP: $mp mismatch is not a partition-backed archive"; exit 1; }
+    parent_name=$(lsblk -dn -o PKNAME "$dev" | tr -d '[:space:]')
+    [[ -n $parent_name && -b /dev/$parent_name && $(readlink -f "/dev/$parent_name") == "$parent" ]] || {
+      echo "STOP: $mp mounted partition does not belong to configured parent disk"; exit 1;
+    }
+    [[ $(lsblk -dn -o TYPE "$parent" | tr -d '[:space:]') == disk ]] || { echo "STOP: $mp configured parent is not a physical disk"; exit 1; }
+    # Reject disks with a filesystem of their own, and parent disks used for
+    # the OS or any other mounted filesystem. No mount changes are attempted.
+    [[ -z $(blkid -s TYPE -o value "$parent" 2>/dev/null || :) ]] || { echo "STOP: $mp parent disk has its own filesystem"; exit 1; }
+    [[ $(readlink -f "$osdev") != "$parent" ]] || { echo "STOP: $mp parent is the OS disk"; exit 1; }
+    if findmnt -rn -S "$parent" >/dev/null 2>&1; then
+      echo "STOP: $mp parent disk is also mounted"; exit 1
+    fi
+    echo "  VERIFIED PARTITION-BACKED ARCHIVE: $oldspec is the direct parent of $dev"
+  fi
   [[ $oldopts =~ ^[a-zA-Z0-9._,=-]+$ && ${dump:-0} =~ ^[0-9]+$ && ${pass:-0} =~ ^[0-9]+$ ]] || { echo "STOP: invalid $mp options or trailing fields"; exit 1; }
   # Detect aliases pointing at the same ext4 UUID, including cross-mounted disks.
   for prior in "${seen_uuids[@]:-}"; do [[ $prior != "$uuid" ]] || { echo "STOP: same UUID on multiple archive mounts"; exit 1; }; done

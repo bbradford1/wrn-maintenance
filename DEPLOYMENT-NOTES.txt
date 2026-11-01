@@ -7,3 +7,5 @@ OS recording video can be indexed to its original filesystem by WAVE; moving wit
 Recordings on nearly-full archive disks are NOT safely movable just because `df` reports a few dozen GB available. They may be in WAVE's reserved space and actively recycled.
 Maintain customer consent and an independent recording/playback check for any future manual archive relocation or cleanup. Retain logs on all error paths.
 Ubuntu 18.04: diagnostic-only helper wrn_legacy.sh.
+
+Dev.19.1 candidate: automatic post-removal orphan Snap mount housekeeping within --apply, with pre/post safeguards and persistent backups. Unqualified on real orphan failures until lab test.

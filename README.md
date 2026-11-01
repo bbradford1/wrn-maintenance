@@ -1,57 +1,71 @@
-# Hanwha WRN Maintenance — dev.19 technician workflow pilot
+# Hanwha WRN Maintenance
 
-**TEST BRANCH ONLY — NOT APPROVED FOR FLEET DEPLOYMENT.** Ubuntu 22.04 Gen 2 only; Ubuntu 18.04 diagnostics only.
+**Version 1.0.0 · Technician Quick Start**
+For **Hanwha Gen 2 WRNs running Ubuntu 22.04**. Ubuntu 18.04 (Gen 1) is diagnostics-only and **must not** run this maintenance procedure.
 
-## Technician: the same two commands
+> **Release status:** This documentation and version 1.0.0 are staged for PR review. Do not use the `main` commands below until the PR has been approved and merged. Do not deploy to a fleet without the required authorization.
 
-As the normal `wave` user (NOT sudo), download scripts:
+## What does this do?
+
+The WRN maintenance toolkit helps prevent common long-term recorder issues. During an approved maintenance session, it:
+
+- Checks the system and archives before doing any work, and stops if it finds an unsafe condition.
+- Corrects known archive mount configuration issues (including UUIDs and timeouts) on verified archive drives.
+- Offers guarded repairs for duplicate archive entries and unusually short systemd timeouts when detected.
+- Cleans up certain unnecessary OS packages, Snap leftovers, and old logs, while preserving required software.
+- Checks WAVE service status and saves a service history for future visits.
+
+**It does not automatically erase, move, or reindex recordings.** OS recording spillover is reported for review, not deleted. It does not format drives or automatically reboot the WRN. A successfully mounted archive does **not** prove that WAVE is recording; check in the client.
+
+## Before you start
+
+Make sure you have approval to maintain this recorder, access to its Ubuntu terminal (Cockpit terminal or SSH), working `sudo` credentials, and a maintenance window if needed. **Run as the normal `wave` user**. Use an interactive terminal: the maintenance script may ask you to answer **Y/N**.
+
+If any archive expected at the site is offline, stop and escalate; don't assume an empty `/mnt/sd*` folder is an archive. Don't run the repair on an unknown or unsupported system.
+
+## Step 1 — Download (no maintenance actions)
 
 ```bash
-wget -qO- https://raw.githubusercontent.com/bbradford1/wrn-maintenance/technician-workflow-pilot/installer.sh | bash
+wget -qO- https://raw.githubusercontent.com/bbradford1/wrn-maintenance/main/installer.sh | bash
 ```
 
-Then run the guided maintenance over an interactive SSH session:
+You should see **`INSTALL COMPLETE`** after the installer verifies and downloads the required scripts. **The installer does not run maintenance.** If it reports `STOP` or a checksum mismatch, do not continue.
+
+## Step 2 — Run guided maintenance
 
 ```bash
 cd /home/wave/Downloads/maintenance && sudo bash wrn_maintenance.sh --apply
 ```
 
-The installer verifies **eight** Ubuntu 22.04 scripts and DOES NOT execute them. The technician approves the exact 3-second systemd timeout repair if detected, and duplicate archive fstab repair if detected. The preflight now inventories mounted archive volumes and OS recording spillover. Core maintenance normalizes the UUID/timeout configuration for all correctly mounted `/mnt/sda` through `/mnt/sdd` drives. For absent optional bays, the existing fstab entries are reported but not silently deleted. A present archive device that should be mounted but is offline is a STOP condition.
+Read each prompt and review proposed repairs. Answer **Y** only when the displayed correction matches the recorder and you are authorized to proceed. The script may stop on disk or configuration problems; **a STOP is a safeguard, not a reason to force a repair**. Record the message and contact engineering/support.
 
-A missing primary archive halts routine maintenance and optionally offers read-only archive inspection, never blind fsck or mounting. OS recording spillover detection is read-only; it does not delete or move recordings.
+During the run, you may see notes about **optional archive bays that have no drives installed**. Those entries are preserved and are not automatically treated as failed physical drives; confirm the site's expected drive count.
 
-Finalization occurs only after technician independently verifies desktop, live recording, and playback:
+## Step 3 — Verify WAVE, then finish
+
+Before cleaning up reports, confirm all three:
+
+- The **Ubuntu desktop** is working.
+- The **WAVE client** connects and shows the server normally.
+- **Live recording and recorded playback** both work on an actual camera.
+
+If any check cannot be completed, answer **N** at the final prompt and leave the files for review. If all checks pass, answer **Y** when asked to finalize. If you previously answered N, you may finalize later:
 
 ```bash
 cd /home/wave/Downloads/maintenance && sudo bash wrn_maintenance.sh --finalize
 ```
 
-Answer `N` if cameras are unavailable, footage cannot be played, or review is incomplete. `Y` finalization intentionally keeps **only** `WRN-Service-History.txt` in the maintenance directory; save required reports first.
+Finalization retains **`/home/wave/Downloads/maintenance/WRN-Service-History.txt`** and removes the temporary scripts and reports in that directory. **Save any reports needed for troubleshooting before finalizing.** Protected system backups, such as fstab backups, are stored separately.
 
-## Additional diagnostic commands
+## Need help?
 
-```bash
-cd /home/wave/Downloads/maintenance
-sudo bash wrn_archive_multidrive.sh --audit
-sudo bash wrn_archive_spillover.sh --audit
-sudo bash wrn_archive_spillover.sh --plan-move
-sudo bash wrn_maintenance.sh --prompt-preview
-```
+| What you see | What to do |
+|---|---|
+| `STOP` or an unexpected archive/device | **Do not force it**; save the terminal output and contact engineering/support. |
+| Missing primary archive | Don't run normal maintenance; use supervised recovery/diagnostics. |
+| Missing optional bay message | Confirm whether the recorder actually has a drive in that bay. |
+| WAVE active but no video/playback | Keep reports (**N** at final prompt); investigate in WAVE. |
+| Need a diagnostic report only | Run `cd /home/wave/Downloads/maintenance && sudo bash wrn_maintenance.sh --diagnose` after installing. |
+| Need to retain reports | Answer **N**; do not run `--finalize` yet. |
 
-All four are safe inspection/preview commands. `--plan-move` is capacity analysis only: **no automatic move is implemented**. The existing `wrn_os_archive_cleanup.sh --delete` is an exceptional, separate, interactive, explicitly authorized operation with additional filesystem/active-recording guards; it is NEVER invoked by routine maintenance. Never delete OS recordings just because the OS disk is near full.
-
-## Why dev.19 does not offer automatic migration
-
-WAVE/Nx records video in chunks indexed by location; moving files manually can break timeline playback until archives are reindexed. WAVE automatically balances and recycles its storage volumes. A nearly-full archive with 30 GB remaining may be at its VMS reserve, NOT have 30 GB safely available for a file copy. The audit displays actual `df` free bytes and a **conservative 50 GiB margin**; this is a screening value, not proof of capacity or an endorsement to move. Migration must be separately designed with Hanwha/Network Optix support, tested against real footage, and validated after reindexing. Preserve originals until validated.
-
-## Lab and safety
-
-- `main` remains unchanged. Commit all scripts plus the updated installer and SHA256 manifest to `technician-workflow-pilot` together only **after** a reviewed lab test.
-- The dev.18 factory-to-maintained single-drive flow passed previously. **Dev.19 multi-drive logic has not yet passed real multi-drive hardware validation**.
-- No automatic video modification, filesystem repair, WAVE restart, disk mount/unmount, or reboot.
-- Retain reports when an exception occurs and seek supervised diagnosis rather than guessing.
-- USB/removable or unexpected filesystems are never automatically assigned as archives.
-- `isc-dhcp-server6` factory failure is not modified.
-- Diagnostics, scripts and history belong under `/home/wave/Downloads/maintenance`.
-
-See `TEST-PLAN.md` and `DEPLOYMENT-NOTES.txt`.
+**More technical detail:** see [TECHNICAL-GUIDE.md](TECHNICAL-GUIDE.md). Release and test evidence is in [TEST-PLAN.md](TEST-PLAN.md) and [CHANGELOG.md](CHANGELOG.md).
