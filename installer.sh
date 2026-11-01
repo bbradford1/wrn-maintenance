@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Hanwha WRN installer v1.0.0-dev.19.4-TECH-WORKFLOW-PILOT
+# Hanwha WRN installer v1.0.0-dev.19.5-TECH-WORKFLOW-PILOT
 # Download-only by default. Never starts maintenance, recovery or cleanup.
 # Production: bash installer.sh
 # Lab-only: bash installer.sh --local-source PATH --target-dir PATH
 set -Eeuo pipefail
 export LC_ALL=C
 umask 077
-VERSION='1.0.0-dev.19.4-TECH-WORKFLOW-PILOT'
+VERSION='1.0.0-dev.19.5-TECH-WORKFLOW-PILOT'
 BASE_URL='https://raw.githubusercontent.com/bbradford1/wrn-maintenance/technician-workflow-pilot'
 LOCAL_SOURCE=''
 TARGET_DIR=''
@@ -63,7 +63,7 @@ expected_sha(){ case "$1" in
   wrn_systemd_timeout_restore.sh) printf "%s\n" "530a0f40d9c073b025965602c204c83c9ab84671ea2aa5fd2a410bbf505519be";;
   wrn_archive_recovery.sh) printf "%s\n" "54515394787b1d9c062d6cc210be6b0e2f487f329bbb2fe590f75f933dde42ed";;
   wrn_fstab_dedup.sh) printf "%s\n" "7cd46fd6e7a72484d913a22bf1beaba83ef39bb7440553eaa5ee200e609a94c3";;
-  wrn_archive_multidrive.sh) printf "%s\n" "fc8b1a48d4b460afa84e63bc6da401727bf9f6784df24f34bf1586f5d39bdc1f";;
+  wrn_archive_multidrive.sh) printf "%s\n" "a5957db448b8bec3f770e532f650a0830f80f0163fb848f77386f5aab617a68e";;
   wrn_archive_spillover.sh) printf "%s\n" "e134c27c578bd0d1d43a1f599a660591d0b822f8fe73e65740cf893f4109a055";;
   *) return 1;;
 esac; }

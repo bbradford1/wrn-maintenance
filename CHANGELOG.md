@@ -37,3 +37,10 @@
 - Adds `--snap-orphan-apply`, an engineering-only standalone entry point into the same guarded `snap_orphan_cleanup apply` used by regular `--apply`. No full maintenance, package removal, archive repair or finalization.
 - `--snap-orphan-audit` remains read-only and does not alter unit state. Normal `--apply` still performs orphan housekeeping automatically without a new prompt.
 - Use only on expendable lab WRN until qualified. Test the synthetic `snap-wrntest-99999.mount` orphan, verify backup and failure-state removal, preserve installed snapd, WAVE and archives.
+
+
+## dev.19.5 — partition-backed archive exception (lab candidate)
+- Archive helper recognizes a mounted ext4 partition only when the fstab device points to its verified direct parent disk (e.g. /dev/sdb -> /dev/sdb1).
+- Maintains a safety STOP for unrelated mounted devices, OS devices, unexpected filesystem types, and duplicate archive targets.
+- Retains prior behavior on whole-disk ext4 archives and all Snap/dmesg features of dev.19.4.
+- Requires read-only audit, supervised apply, fstab verification, and reboot persistence on the expendable lab WRN.

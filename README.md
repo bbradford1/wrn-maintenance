@@ -71,3 +71,7 @@ Read-only audit, without repeating maintenance: `sudo bash wrn_maintenance.sh --
 
 
 Dev.19.4 engineering test: `sudo bash wrn_maintenance.sh --dmesg-audit`, then supervised `sudo bash wrn_maintenance.sh --dmesg-apply` only after authorization; no full maintenance rerun.
+
+
+### dev.19.5 partition-backed archive lab qualification
+An ext4 archive on a disk partition (e.g. /dev/sdb1) may be mounted at /mnt/sdb even when factory fstab references /dev/sdb. The multi-drive helper only accepts this exception if block-device metadata verifies /dev/sdb1 belongs directly to /dev/sdb, then proposes an ext4 UUID entry. Audit first; do not run apply on customer recorders until qualified.

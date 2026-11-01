@@ -48,3 +48,12 @@ Seek OEM support confirmation on supported archive relocation paths and reindex 
 
 
 Dev.19.4 engineering test: `sudo bash wrn_maintenance.sh --dmesg-audit`, then supervised `sudo bash wrn_maintenance.sh --dmesg-apply` only after authorization; no full maintenance rerun.
+
+
+## Test 082 — dev.19.5 partition-backed laboratory archive
+- Lab only: /dev/sda ext4 on /mnt/sda, /dev/sdb1 ext4 on /mnt/sdb, factory fstab references /dev/sdb.
+- Audit proposes UUID=48f9497a-0207-4e9d-8cc4-29a0b32b5dfd with 60s device and 120s mount timeouts.
+- Confirm WAVE service remains running, archive mount unchanged in audit, and no filesystem edits.
+- Apply ONLY after verifying correct parent relationship and fstab backup.
+- Verify both mounted archives and fstab; controlled reboot only after successful checks.
+- Negative tests: unrelated disk mismatch, mounted OS disk, read-only archive, duplicate fstab target, absent archive, UUID duplicate.
