@@ -1,151 +1,106 @@
 #!/usr/bin/env bash
-# Hanwha WRN download-only installer v1.0.0-dev.14-pilot
-# Usage: wget -qO- https://raw.githubusercontent.com/bbradford1/wrn-maintenance/main/installer.sh | bash
-# Downloads and verifies the complete toolkit; never executes maintenance.
+# Hanwha WRN installer v1.0.0-dev.19-TECH-WORKFLOW-PILOT
+# Download-only by default. Never starts maintenance, recovery or cleanup.
+# Production: bash installer.sh
+# Lab-only: bash installer.sh --local-source PATH --target-dir PATH
 set -Eeuo pipefail
 export LC_ALL=C
 umask 077
-
-INSTALLER_VERSION='1.0.0-dev.14-pilot'
-BASE_URL='https://raw.githubusercontent.com/bbradford1/wrn-maintenance/main'
-MODERN_SHA256='9485b6d799253f2d89af5a16dfbda1980e788bad9dfca59a554de576e0f8cd49'
-LEGACY_SHA256='1dd0a5920eed0b39f6102ed351c12fbc59ebf21aeafde99ea142f2731cc423ff'
-ARCHIVE_SHA256='aba17d475f22b907c961f4ee855f0106fda9d16ac317ef50b4119236796d8193'
-CLEAN_SHA256='bd9f38959b0dc452f921e548aa8400d18dee47d29da170d00378ec23e3f319b7'
-SPACE_SHA256='6e122ce3c6694aa0d49d8fb8411dd1e8a049f2d7303c31bfa5b2334f14b821b4'
-
-fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
-
-# Keep the piped command usable by the logged-in desktop user, without sudo.
-(( EUID != 0 )) || fail 'Run the installer as the normal desktop user, not with sudo. Maintenance runs separately with sudo.'
-[[ -r /etc/os-release ]] || fail 'Cannot detect operating system.'
-# shellcheck disable=SC1091
+VERSION='1.0.0-dev.19-TECH-WORKFLOW-PILOT'
+BASE_URL='https://raw.githubusercontent.com/bbradford1/wrn-maintenance/technician-workflow-pilot'
+LOCAL_SOURCE=''
+TARGET_DIR=''
+OFFLINE_BUNDLE='' 
+fail(){ echo "STOP: $*" >&2; exit 1; }
+usage(){ printf '%s\n' 'Usage: bash installer.sh --offline-bundle ABSOLUTE_DIR' 'Or: bash installer.sh --local-source DIR --target-dir DIR' 'Default (no flags) downloads from GitHub; use offline-bundle to avoid network.'; }
+while (( $# )); do
+  case "$1" in
+    --offline-bundle) (( $# >= 2 )) || fail 'Missing --offline-bundle path'; OFFLINE_BUNDLE="$2"; shift 2 ;;
+    --local-source) (( $# >= 2 )) || fail 'Missing --local-source path'; LOCAL_SOURCE="$2"; shift 2 ;;
+    --target-dir) (( $# >= 2 )) || fail 'Missing --target-dir path'; TARGET_DIR="$2"; shift 2 ;;
+    --help|-h) usage; exit 0 ;;
+    *) fail "Unexpected argument: $1" ;;
+  esac
+done
+(( EUID != 0 )) || fail 'Run installer as normal wave user (not sudo).'
+[[ -r /etc/os-release ]] || fail 'Missing OS release information.'
 . /etc/os-release
-[[ "${ID:-}" == ubuntu ]] || fail "Unsupported OS: ${PRETTY_NAME:-unknown}; no files downloaded."
+[[ "${ID:-}" == ubuntu ]] || fail "Unsupported OS: ${PRETTY_NAME:-unknown}"
 case "${VERSION_ID:-}" in
-  18.04) FILENAME='wrn_legacy.sh'; EXPECTED_SHA256="$LEGACY_SHA256" ;;
-  22.04) FILENAME='wrn_maintenance.sh'; EXPECTED_SHA256="$MODERN_SHA256" ;;
-  *) fail "Unsupported Ubuntu release: ${VERSION_ID:-unknown}. No files downloaded." ;;
+  22.04) FILES=(wrn_maintenance.sh wrn_os_archive_cleanup.sh wrn_remaining_os_space.sh wrn_systemd_timeout_restore.sh wrn_archive_recovery.sh wrn_fstab_dedup.sh wrn_archive_multidrive.sh wrn_archive_spillover.sh) ;;
+  18.04) FILES=(wrn_legacy.sh) ;;
+  *) fail "Unsupported Ubuntu release: ${VERSION_ID:-unknown}" ;;
 esac
-
-for tool in bash sha256sum mktemp mv chmod mkdir rm grep; do
-  command -v "$tool" >/dev/null 2>&1 || fail "Required utility missing: $tool"
+[[ -n "${HOME:-}" && "$HOME" == /* && -d "$HOME" ]] || fail 'Unrecognized home directory.'
+if [[ -n "$OFFLINE_BUNDLE" ]]; then
+  [[ -z "$LOCAL_SOURCE" && -z "$TARGET_DIR" ]] || fail 'Cannot combine offline-bundle with other source/target flags.'
+  [[ "$OFFLINE_BUNDLE" == /* && -d "$OFFLINE_BUNDLE" && ! -L "$OFFLINE_BUNDLE" ]] || fail 'Offline bundle must be an absolute real directory.'
+  LOCAL_SOURCE="$OFFLINE_BUNDLE"
+  TARGET_DIR="$HOME/Downloads/maintenance"
+  echo 'MODE: OFFLINE BUNDLE; GitHub not accessed and maintenance will NOT run.'
+elif [[ -n "$LOCAL_SOURCE" || -n "$TARGET_DIR" ]]; then
+  [[ -n "$LOCAL_SOURCE" && -n "$TARGET_DIR" ]] || fail 'Lab mode requires BOTH --local-source and --target-dir.'
+  [[ "$LOCAL_SOURCE" == /* && -d "$LOCAL_SOURCE" && ! -L "$LOCAL_SOURCE" ]] || fail 'Local source must be an absolute real directory.'
+  [[ "$TARGET_DIR" == "$HOME"/Downloads/* && "$TARGET_DIR" != "$HOME/Downloads/maintenance" ]] || fail 'Lab destination must be a separate absolute directory under ~/Downloads (not production maintenance).'
+  [[ "$TARGET_DIR" != "$LOCAL_SOURCE" ]] || fail 'Source and target cannot match.'
+  echo 'MODE: LOCAL TEST; GitHub not accessed and maintenance will NOT run.'
+else
+  TARGET_DIR="$HOME/Downloads/maintenance"
+  echo 'MODE: DOWNLOAD ONLY; GitHub source, no maintenance actions.'
+fi
+for cmd in sha256sum mktemp mv chmod mkdir rm grep bash head; do command -v "$cmd" >/dev/null || fail "Missing tool: $cmd"; done
+mkdir -p -- "$TARGET_DIR"
+[[ -d "$TARGET_DIR" && ! -L "$TARGET_DIR" && -w "$TARGET_DIR" ]] || fail 'Target path is not a writable real directory.'
+[[ ! -e "$TARGET_DIR/WRN-Service-History.txt" || -f "$TARGET_DIR/WRN-Service-History.txt" ]] || fail 'Unexpected service history file type.'
+# All downloads are staged and independently checked before installing ANY script.
+STAGE="$(mktemp -d "$TARGET_DIR/.wrn-install-stage.XXXXXXXX")" || fail 'Cannot make secure staging folder.'
+trap 'rm -rf -- "$STAGE"' EXIT
+expected_sha(){ case "$1" in
+  wrn_maintenance.sh) printf "%s\n" "9e38a2b71c4cb06e9a733a5d1ce780b7ee54404e5f1e211e23f2878647241379";;
+  wrn_legacy.sh) printf "%s\n" "1dd0a5920eed0b39f6102ed351c12fbc59ebf21aeafde99ea142f2731cc423ff";;
+  wrn_os_archive_cleanup.sh) printf "%s\n" "71a74d7e243688628d735da52b7337baad73de7924ff54b2052759f9ff18d627";;
+  wrn_remaining_os_space.sh) printf "%s\n" "6e122ce3c6694aa0d49d8fb8411dd1e8a049f2d7303c31bfa5b2334f14b821b4";;
+  wrn_systemd_timeout_restore.sh) printf "%s\n" "530a0f40d9c073b025965602c204c83c9ab84671ea2aa5fd2a410bbf505519be";;
+  wrn_archive_recovery.sh) printf "%s\n" "54515394787b1d9c062d6cc210be6b0e2f487f329bbb2fe590f75f933dde42ed";;
+  wrn_fstab_dedup.sh) printf "%s\n" "7cd46fd6e7a72484d913a22bf1beaba83ef39bb7440553eaa5ee200e609a94c3";;
+  wrn_archive_multidrive.sh) printf "%s\n" "fc8b1a48d4b460afa84e63bc6da401727bf9f6784df24f34bf1586f5d39bdc1f";;
+  wrn_archive_spillover.sh) printf "%s\n" "e134c27c578bd0d1d43a1f599a660591d0b822f8fe73e65740cf893f4109a055";;
+  *) return 1;;
+esac; }
+for f in "${FILES[@]}"; do
+  case "$f" in wrn_*.sh) ;; *) fail 'Unsafe installer manifest name';; esac
+  out="$STAGE/$f"
+  if [[ -n "$LOCAL_SOURCE" ]]; then
+    [[ -f "$LOCAL_SOURCE/$f" && ! -L "$LOCAL_SOURCE/$f" ]] || fail "Missing local source: $f"
+    cp -- "$LOCAL_SOURCE/$f" "$out" || fail "Copy failed: $f"
+  else
+    if command -v wget >/dev/null 2>&1; then
+      wget -q --https-only --timeout=20 --tries=2 -O "$out" "$BASE_URL/$f" || fail "Download failed: $f"
+    elif command -v curl >/dev/null 2>&1; then
+      curl --fail --location --silent --show-error --connect-timeout 10 --max-time 90 --proto '=https' --proto-redir '=https' --output "$out" "$BASE_URL/$f" || fail "Download failed: $f"
+    else fail 'Requires wget or curl'; fi
+  fi
+  [[ -s "$out" ]] || fail "Empty script: $f"
+  actual="$(sha256sum "$out" | awk '{print $1}')"
+  [[ "$actual" == "$(expected_sha "$f")" ]] || fail "SHA-256 mismatch for $f; NO scripts published"
+  bash -n "$out" || fail "Bash syntax failed for $f"
+  [[ "$(head -n1 "$out")" == '#!/usr/bin/env bash' ]] || fail "Invalid script header for $f"
+  if grep -q $'\r' "$out"; then fail "CRLF line ending rejected for $f"; fi
+  chmod 0644 "$out"
+  printf 'VERIFIED %s %s\n' "$f" "$actual"
 done
-if command -v wget >/dev/null 2>&1; then
-  DOWNLOADER=wget
-elif command -v curl >/dev/null 2>&1; then
-  DOWNLOADER=curl
-else
-  fail 'wget or curl is required to download the WRN script.'
-fi
-
-# HOME must be the invoking user's home. Never infer /root or use arbitrary SUDO_USER.
-[[ -n "${HOME:-}" && "$HOME" == /* && -d "$HOME" ]] || fail 'Cannot identify the user home directory.'
-TARGET_DIR="$HOME/Downloads/maintenance"
-mkdir -p -- "$TARGET_DIR" || fail "Cannot create: $TARGET_DIR"
-[[ -d "$TARGET_DIR" && -w "$TARGET_DIR" ]] || fail "Downloads folder is not writable: $TARGET_DIR"
-TMPFILE="$(mktemp "$TARGET_DIR/.wrn-installer.XXXXXXXX")" || fail 'Unable to create temporary download file.'
-cleanup() { rm -f -- "$TMPFILE"; }
-trap cleanup EXIT
-
-printf 'WRN installer %s\nOS: %s\nDestination: %s\nFile: %s\n' \
-  "$INSTALLER_VERSION" "${PRETTY_NAME:-Ubuntu}" "$TARGET_DIR" "$FILENAME"
-printf 'Downloading verified development build (not fleet-approved)...\n'
-if [[ "$DOWNLOADER" == wget ]]; then
-  wget -q --https-only --timeout=20 --tries=2 -O "$TMPFILE" "$BASE_URL/$FILENAME" \
-    || fail 'Download failed; existing file was not changed.'
-else
-  curl --fail --location --silent --show-error --connect-timeout 10 --max-time 90 \
-    --proto '=https' --proto-redir '=https' --output "$TMPFILE" "$BASE_URL/$FILENAME" \
-    || fail 'Download failed; existing file was not changed.'
-fi
-[[ -s "$TMPFILE" ]] || fail 'Downloaded file is empty.'
-IFS=' ' read -r ACTUAL_SHA256 _ < <(sha256sum "$TMPFILE")
-[[ "$ACTUAL_SHA256" == "$EXPECTED_SHA256" ]] || fail 'Checksum mismatch: download rejected; existing file was not changed.'
-bash -n "$TMPFILE" || fail 'Bash syntax check failed; existing file was not changed.'
-[[ "$(head -n 1 "$TMPFILE")" == '#!/usr/bin/env bash' ]] || fail 'Unexpected file header.'
-if grep -q $'\r' "$TMPFILE"; then fail 'Windows CR line endings detected; download rejected.'; fi
-
-# Publish only after all checks; same-directory rename prevents partial target files.
-chmod 0644 "$TMPFILE"
-mv -f -- "$TMPFILE" "$TARGET_DIR/$FILENAME" || fail 'Could not publish validated script.'
-printf '\nMAIN SCRIPT VERIFIED: %s\nSHA-256: %s\n' "$TARGET_DIR/$FILENAME" "$ACTUAL_SHA256"
-# Optional cleanup utility is downloaded for both supported Ubuntu releases.
-# It is NEVER executed by this installer. The --delete flag permanently removes recordings.
-ARCHIVE_TMP="$(mktemp "$TARGET_DIR/.wrn-archive.XXXXXXXX")" || fail 'Cannot stage archive utility.'
-archive_cleanup_tmp() { rm -f -- "$ARCHIVE_TMP"; }
-trap 'cleanup; archive_cleanup_tmp' EXIT
-if [[ "$DOWNLOADER" == wget ]]; then
-  wget -q --https-only --timeout=20 --tries=2 -O "$ARCHIVE_TMP" "$BASE_URL/wrn_os_archive_cleanup.sh" \
-    || fail 'Archive utility download failed; maintenance script download was already verified.'
-else
-  curl --fail --location --silent --show-error --connect-timeout 10 --max-time 90 \
-    --proto '=https' --proto-redir '=https' --output "$ARCHIVE_TMP" "$BASE_URL/wrn_os_archive_cleanup.sh" \
-    || fail 'Archive utility download failed; maintenance script download was already verified.'
-fi
-[[ -s "$ARCHIVE_TMP" ]] || fail 'Archive utility download is empty.'
-IFS=' ' read -r ARCHIVE_ACTUAL_SHA _ < <(sha256sum "$ARCHIVE_TMP")
-[[ "$ARCHIVE_ACTUAL_SHA" == "$ARCHIVE_SHA256" ]] || fail 'Archive utility checksum mismatch; refusing file.'
-bash -n "$ARCHIVE_TMP" || fail 'Archive utility Bash syntax check failed.'
-[[ "$(head -n 1 "$ARCHIVE_TMP")" == '#!/usr/bin/env bash' ]] || fail 'Archive utility file header unexpected.'
-if grep -q $'\r' "$ARCHIVE_TMP"; then fail 'Archive utility CRLF detected.'; fi
-chmod 0644 "$ARCHIVE_TMP"
-mv -f -- "$ARCHIVE_TMP" "$TARGET_DIR/wrn_os_archive_cleanup.sh" || fail 'Cannot publish archive utility.'
-printf '\nARCHIVE UTILITY VERIFIED: %s\nSHA-256: %s\n' "$TARGET_DIR/wrn_os_archive_cleanup.sh" "$ARCHIVE_ACTUAL_SHA"
-printf 'Archive utility is DRY RUN by default. --delete permanently destroys the listed OS-drive recordings.\n'
-
-# Additional read-only OS-space diagnostics. Download only, checked against pinned hash.
-SPACE_TMP="$(mktemp "$TARGET_DIR/.wrn-space.XXXXXXXX")" || fail 'Cannot stage space diagnostic.'
-space_cleanup_tmp() { rm -f -- "$SPACE_TMP"; }
-trap 'cleanup; archive_cleanup_tmp; space_cleanup_tmp' EXIT
-if [[ "$DOWNLOADER" == wget ]]; then
-  wget -q --https-only --timeout=20 --tries=2 -O "$SPACE_TMP" "$BASE_URL/wrn_remaining_os_space.sh" \
-    || fail 'OS diagnostic download failed.'
-else
-  curl --fail --location --silent --show-error --connect-timeout 10 --max-time 90 \
-    --proto '=https' --proto-redir '=https' --output "$SPACE_TMP" "$BASE_URL/wrn_remaining_os_space.sh" \
-    || fail 'OS diagnostic download failed.'
-fi
-[[ -s "$SPACE_TMP" ]] || fail 'OS diagnostic download is empty.'
-IFS=' ' read -r SPACE_ACTUAL_SHA _ < <(sha256sum "$SPACE_TMP")
-[[ "$SPACE_ACTUAL_SHA" == "$SPACE_SHA256" ]] || fail 'OS diagnostic checksum mismatch.'
-bash -n "$SPACE_TMP" || fail 'OS diagnostic Bash syntax check failed.'
-[[ "$(head -n 1 "$SPACE_TMP")" == '#!/usr/bin/env bash' ]] || fail 'Unexpected OS diagnostic header.'
-if grep -q $'\r' "$SPACE_TMP"; then fail 'OS diagnostic CRLF detected.'; fi
-chmod 0644 "$SPACE_TMP"
-mv -f -- "$SPACE_TMP" "$TARGET_DIR/wrn_remaining_os_space.sh" || fail 'Cannot publish OS diagnostic.'
-printf '\nOS DIAGNOSTIC VERIFIED: %s\n' "$TARGET_DIR/wrn_remaining_os_space.sh"
-printf 'For read-only OS space report: cd ~/Downloads/maintenance && sudo bash wrn_remaining_os_space.sh\n'
-
-# Optional clean-up helper: downloaded but never executed.
-CLEAN_TMP="$(mktemp "$TARGET_DIR/.wrn-clean.XXXXXXXX")" || fail 'Cannot stage cleanup helper.'
-cleanup_all() { cleanup; archive_cleanup_tmp; space_cleanup_tmp; rm -f -- "$CLEAN_TMP"; }
-trap cleanup_all EXIT
-if [[ "$DOWNLOADER" == wget ]]; then
-  wget -q --https-only --timeout=20 --tries=2 -O "$CLEAN_TMP" "$BASE_URL/wrn_downloads_cleanup.sh" || fail 'Cleanup helper download failed.'
-else
-  curl --fail --location --silent --show-error --connect-timeout 10 --max-time 90 --proto '=https' --proto-redir '=https' --output "$CLEAN_TMP" "$BASE_URL/wrn_downloads_cleanup.sh" || fail 'Cleanup helper download failed.'
-fi
-[[ -s "$CLEAN_TMP" ]] || fail 'Cleanup helper download empty.'
-[[ "$(sha256sum "$CLEAN_TMP" | awk '{print $1}')" == "$CLEAN_SHA256" ]] || fail 'Cleanup helper checksum mismatch.'
-bash -n "$CLEAN_TMP" || fail 'Cleanup helper syntax error.'
-[[ "$(head -n 1 "$CLEAN_TMP")" == '#!/usr/bin/env bash' ]] || fail 'Unexpected cleanup helper header.'
-if grep -q $'\r' "$CLEAN_TMP"; then fail 'Cleanup helper CRLF rejected.'; fi
-chmod 0644 "$CLEAN_TMP"
-mv -f -- "$CLEAN_TMP" "$TARGET_DIR/wrn_downloads_cleanup.sh" || fail 'Cannot publish cleanup helper.'
-printf 'CLEANUP HELPER VERIFIED: %s\n' "$TARGET_DIR/wrn_downloads_cleanup.sh"
-# Final manifest validation happens AFTER every staged download/checksum has passed.
-for required in "$FILENAME" wrn_os_archive_cleanup.sh wrn_remaining_os_space.sh wrn_downloads_cleanup.sh; do
-  [[ -s "$TARGET_DIR/$required" && -r "$TARGET_DIR/$required" ]] || fail "INSTALLATION INCOMPLETE: missing $required"
+# Refuse symlink destination replacement; do not disturb pre-existing service history.
+for f in "${FILES[@]}"; do
+  [[ ! -L "$TARGET_DIR/$f" ]] || fail "Target symlink rejected: $f"
 done
-printf '\n=== INSTALLATION COMPLETE: 4 VERIFIED SCRIPTS ===\n'
-printf 'Selected OS script: %s\n' "$FILENAME"
-printf 'OS archive utility: wrn_os_archive_cleanup.sh (dry-run by default)\n'
-printf 'OS space audit: wrn_remaining_os_space.sh\n'
-printf 'Housekeeping: wrn_downloads_cleanup.sh\n'
-printf 'No maintenance or archive deletion has been executed.\n'
-if [[ "$FILENAME" == wrn_legacy.sh ]]; then
-  printf 'Ubuntu 18.04: diagnostics only; --apply is NOT approved.\n'
+for f in "${FILES[@]}"; do
+  mv -f -- "$STAGE/$f" "$TARGET_DIR/$f" || fail "Publishing failed: $f"
+done
+printf '\nINSTALL COMPLETE: %s verified scripts in %s\n' "${#FILES[@]}" "$TARGET_DIR"
+if [[ "${VERSION_ID:-}" == 18.04 ]]; then
+  echo 'Ubuntu 18.04: wrn_legacy.sh DIAGNOSTICS ONLY; no --apply.'
 else
-  printf 'Ubuntu 22.04: supervised maintenance pilot.\n'
+  echo 'Ubuntu 22.04: run diagnostics / preview / apply explicitly after review.'
+  echo 'Recovery/timeout tools are downloaded but NEVER executed by installer.'
+  echo 'Finalization (only after confirmed recording/playback): sudo bash wrn_maintenance.sh --finalize'
 fi

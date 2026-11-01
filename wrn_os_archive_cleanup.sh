@@ -220,6 +220,65 @@ if [[ ! -d "$DATA_ROOT" ]]; then
 fi
 
 
+# OS-drive only: reject mounted/non-OS WAVE data roots.
+OS_DEVICE_ID="$(stat -c %d /)"
+[[ ! -L "$DATA_ROOT" && "$(stat -c %d "$DATA_ROOT")" == "$OS_DEVICE_ID" ]] || {
+    echo 'STOP: WAVE root is not an ordinary OS-filesystem directory.' >&2; exit 1;
+}
+
+if $DO_DELETE; then
+    # Standalone deletion remains an exceptional, technician-supervised action.
+    # The automatic dev.19 guided workflow never invokes --delete.
+    [[ -r /dev/tty && -w /dev/tty ]] || {
+        echo 'STOP: deletion requires an interactive terminal.' >&2; exit 1;
+    }
+    archive_found=false
+    for mp in /mnt/sda /mnt/sdb /mnt/sdc /mnt/sdd; do
+        if findmnt -rn -M "$mp" >/dev/null 2>&1 && \
+           [[ "$(findmnt -rn -M "$mp" -o FSTYPE)" == ext4 ]] && \
+           [[ ",$(findmnt -rn -M "$mp" -o OPTIONS)," == *,rw,* ]] && \
+           [[ "$(stat -c %d "$mp")" != "$OS_DEVICE_ID" ]]; then
+            archive_found=true
+        elif findmnt -rn -M "$mp" >/dev/null 2>&1; then
+            echo "STOP: unexpected mounted archive $mp; inspect first" >&2; exit 1
+        fi
+    done
+    $archive_found || { echo 'STOP: no healthy, mounted archive; OS video cannot be removed.' >&2; exit 1; }
+    # A configured, present, but unmounted archive means recording fallback may still be active.
+    for mp in /mnt/sda /mnt/sdb /mnt/sdc /mnt/sdd; do
+        if awk -v mp="$mp" '$1 !~ /^#/ && $2==mp {found=1} END{exit !found}' /etc/fstab && \
+           ! findmnt -rn -M "$mp" >/dev/null 2>&1; then
+            spec="$(awk -v mp="$mp" '$1 !~ /^#/ && $2==mp {print $1; exit}' /etc/fstab)"
+            present=''
+            case "$spec" in
+              UUID=*) present="$(blkid -U "${spec#UUID=}" 2>/dev/null || true)" ;;
+              /dev/*) [[ -b "$spec" ]] && present="$spec" ;;
+            esac
+            if [[ -n "$present" ]]; then
+                echo "STOP: configured archive $mp is present but not mounted; no deletion." >&2
+                exit 1
+            fi
+        fi
+    done
+    # Block if any dated recording directory was written to recently, which
+    # could indicate WAVE is actively using the OS drive as a recording target.
+    for server in "$DATA_ROOT"/*; do
+      [[ -d "$server" && ! -L "$server" ]] || continue
+      for quality in hi_quality low_quality; do
+        [[ -d "$server/$quality" && ! -L "$server/$quality" ]] || continue
+        if find "$server/$quality" -xdev -mindepth 2 -type f -mmin -120 -print -quit 2>/dev/null | grep -q .; then
+          echo 'STOP: recent recordings found under OS WAVE data; active write cannot be ruled out.' >&2
+          exit 1
+        fi
+      done
+    done
+    printf '%s\n' 'CAUTION: Deleting OS recording data is irreversible.' \
+      'Verify WAVE is now recording to an archive drive, playback works, and customer approves footage loss.' > /dev/tty
+    printf 'Type DELETE OS VIDEO to proceed: ' > /dev/tty
+    IFS= read -r confirmation < /dev/tty || exit 1
+    [[ "$confirmation" == 'DELETE OS VIDEO' ]] || { echo 'DECLINED: nothing deleted'; exit 1; }
+fi
+
 # ============================================================
 # Start
 # ============================================================
@@ -319,7 +378,7 @@ clean_quality() {
     #
 
     mapfile -d '' year_dirs < <(
-        find "$qdir" \
+        find "$qdir" -xdev \
             -mindepth 2 \
             -maxdepth 2 \
             -type d \
@@ -342,6 +401,10 @@ clean_quality() {
 
     for dir in "${year_dirs[@]}"; do
 
+        # Never act on a symlink or another mounted filesystem, even in preview.
+        [[ ! -L "$dir" && "$(stat -c %d "$dir")" == "$OS_DEVICE_ID" ]] || {
+            echo "SKIP: not a plain directory on OS filesystem: $dir"; continue;
+        }
         local size
         size="$(du -sh "$dir" 2>/dev/null | awk '{print $1}')"
 
@@ -364,7 +427,9 @@ clean_quality() {
         echo
 
         for dir in "${year_dirs[@]}"; do
-
+            [[ ! -L "$dir" && "$(stat -c %d "$dir")" == "$OS_DEVICE_ID" ]] || {
+                echo "STOP: path changed or crosses filesystem: $dir"; exit 1;
+            }
             echo "  Removing:"
             echo "    $dir"
 

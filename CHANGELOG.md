@@ -1,27 +1,16 @@
-## 2026-10-27 — supervised folder-pilot.1
-- Installer creates `~/Downloads/maintenance`, downloads verified maintenance, OS cleanup, OS diagnostic, and cleanup helper there; download-only.
-- Routine maintenance diagnostics, preview and apply reports now use the subfolder; legacy diagnostics use the subfolder.
-- OS diagnostic and archive-cleanup transcript use the subfolder. No change to WAVE recording cleanup selection or maintenance fix logic.
-- Optional cleanup helper previews/deletes only recognized files directly in that subfolder, after approval.
-- Not field-qualified. Core/Snap retirement and fstab recovery remain separate.
-
 # Changelog
 
-## 2026-10-23 — 1.0.0-dev.5 controlled testing
+## 1.0.0-dev.19-tech-pilot — multi-drive and OS spillover analysis (UNTESTED)
 
-- Ubuntu 22.04 live-tested: logging KB checks, guarded archive UUID repair, Snap refresh hold, diagnostics, report permissions, no WAVE interruption; successful subsequent reboot and WAVE recording/playback validation on one WRN.
-- Ubuntu 22.04 apply re-run correctly skipped already-normalized archive entry.
-- Ubuntu 18.04 remains unmodified diagnostic-only dev.1; no apply support or qualification yet.
-- Installer updated to verify SHA-256 of modern dev.5 and legacy dev.1.
-- Fleet deployment NOT yet qualified; retain warnings for absent optional archive bays and logrotate scheduling rules.
+- Added `wrn_archive_multidrive.sh`: read-only `--audit`, guarded `--apply` normalizes UUID-backed fstab and 60-second device/120-second mount timeouts for each mounted rw ext4 archive `/mnt/sda`–`/mnt/sdd`. Stops on ambiguous/failed or duplicate storage. Does not mount, unmount, fsck, reboot or touch footage.
+- Integrated read-only multi-drive preflight/final audit into technician `wrn_maintenance.sh --apply` and replaced single-drive fstab normalization with the guarded multi-drive helper.
+- Added `wrn_archive_spillover.sh`: scans dated hi/low-quality video directories only on OS filesystem, reports allocated bytes and archive destination free-space margins. `--plan-move` remains read-only.
+- Strengthened the separate OS-recording deletion helper with OS-filesystem guards, protected mounts, active-file detection and mandatory typed interactive approval. Routine maintenance never invokes deletion.
+- Updated installer SHA-256 pins for eight Ubuntu 22.04 scripts, documentation and test plan.
+- **Not yet tested on a live 2/3/4 archive recorder. Do not promote to main.**
 
-## 1.0.0-dev.7 (2026-10-23)
-- Explicit 60s device and 120s mount-operation timeouts for mounted UUID-based ext4 `/mnt/sda`; preserve longer numeric-second values.
-- Read-only archive failure/journal event diagnostics; no automatic repair, mount, reboot, or WAVE restart.
-- Installer checksum refreshed; auxiliary OS archive cleanup remains independent and download-only.
+## dev.18 — verified on Gen 2 single-drive lab
 
-## 2026-10-27 — supervised diagnostics add-on (no maintenance behavior change)
-- Preserve byte-for-byte Ubuntu 22.04 dev.7 maintenance, Ubuntu 18.04 dev.1 diagnostics and original OS fallback-recording cleanup.
-- Add verified, download-only `wrn_remaining_os_space.sh` for read-only >=1 GiB storage investigation on Ubuntu 22.04.
-- Installer now downloads the additional diagnostic with a pinned SHA-256.
-- Exclude unqualified Snap retirement and dev.8 experimental repair paths from routine rollout.
+- Unified technician verification notice and prompt output through `/dev/tty`.
+- Added non-destructive `--prompt-preview` to validate both Y and N presentation.
+- Successfully tested from factory image, guided 3-second timeout restoration, OS cleanup and reboot persistence, with recording/playback requiring independent validation.
