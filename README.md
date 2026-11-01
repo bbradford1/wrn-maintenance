@@ -1,4 +1,4 @@
-# Hanwha WRN Maintenance — dev.19 technician workflow pilot
+# Hanwha WRN Maintenance — dev.19.1 technician workflow pilot
 
 **TEST BRANCH ONLY — NOT APPROVED FOR FLEET DEPLOYMENT.** Ubuntu 22.04 Gen 2 only; Ubuntu 18.04 diagnostics only.
 
@@ -55,3 +55,13 @@ WAVE/Nx records video in chunks indexed by location; moving files manually can b
 - Diagnostics, scripts and history belong under `/home/wave/Downloads/maintenance`.
 
 See `TEST-PLAN.md` and `DEPLOYMENT-NOTES.txt`.
+
+## dev.19.1 automatic post-Snap orphan cleanup
+
+After the normal approved Snap removal stage, `--apply` automatically detects and retires ONLY failed, inactive systemd `snap-*.mount` definitions where the mounted image is absent and the Snap name is unregistered. No additional technician Y/N question is asked. It preserves active mounts, installed Snap names, and unexpected units; backs up eligible unit definitions and their enablement links under `/etc/systemd/wrn-snap-orphan-backups/`; then reloads systemd and clears only those specific failed-unit statuses. It does **not** remove snapd, WAVE data, or unrelated `dmesg`/DHCP failures. User-session autostarts are not automatically changed.
+
+Read-only audit, without repeating maintenance: `sudo bash wrn_maintenance.sh --snap-orphan-audit`. This candidate has **not** been validated with real failed orphan units; do not run `--apply` on a customer recorder until lab qualification.
+
+### dev.19.2 dmesg one-shot recovery
+
+`sudo bash wrn_maintenance.sh --dmesg-audit` inspects eligibility without changes. During `--apply` the script will retry `dmesg.service` once only for a previously failed timeout after the effective global timeouts are verified at 90 seconds. A successful one-shot service may appear inactive/dead; `Result=success` is the key. No DHCP service is changed and no failed state is blindly reset.

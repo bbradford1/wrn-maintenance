@@ -1,3 +1,16 @@
+## dev.19.2 — guarded dmesg.service recovery (UNQUALIFIED LAB PILOT)
+
+- During `--apply`, after approved Snap cleanup, inspect a failed `dmesg.service` and retry it **once** only if the failure result is `timeout`, the effective systemd start/stop timeouts are both 90s, and the stock unit file path matches.
+- Success requires systemctl restart success plus `Result=success`, `ExecMainStatus=0`, and no failed state. A normally inactive oneshot service is accepted. Failure is reported but never hidden using `reset-failed`. DHCP units remain unchanged.
+- Added read-only `--dmesg-audit` mode. No separate technician confirmation; only operates during approved `--apply`. No video, mounts or WAVE services are restarted.
+- Requires lab qualification before use on a customer WRN.
+
+## dev.19.1 — automatic orphaned Snap mount cleanup (candidate, not field qualified)
+
+- Added noninteractive guarded post-removal cleanup of inactive failed Snap mount units with unregistered packages and absent backing images.
+- Back up unit files and enablement links before retiring them; target-only `reset-failed`; leave other failed services untouched.
+- Added `--snap-orphan-audit` for read-only eligibility checks. No automatic cleaning of per-user Snap autostart artifacts.
+
 # Changelog
 
 ## 1.0.0-dev.19-tech-pilot — multi-drive and OS spillover analysis (UNTESTED)

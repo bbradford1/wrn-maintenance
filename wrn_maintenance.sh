@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# WRN Maintenance 1.0.0-dev.19-tech-pilot - PRE-PRODUCTION / LAB ONLY
+# WRN Maintenance 1.0.0-dev.19.2-tech-pilot - PRE-PRODUCTION / LAB ONLY
 # Ubuntu 22.04. --diagnose and --preview are read-only; --apply performs conditional maintenance.
 # No WAVE/network restart, remount, fsck, reboot, or video cleanup.
-WRN_SCRIPT_VERSION='1.0.0-dev.19-tech-pilot'
+WRN_SCRIPT_VERSION='1.0.0-dev.19.2-tech-pilot'
 MODE="${1:---diagnose}"
 [[ $# -le 1 ]] || { echo 'Only one option permitted' >&2; exit 2; }
 case "$MODE" in
-  --diagnose|--preview|--apply|--package-preview|--tidy-preview|--tidy|--finalize|--prompt-preview) ;;
+  --diagnose|--preview|--apply|--package-preview|--tidy-preview|--tidy|--finalize|--prompt-preview|--snap-orphan-audit|--dmesg-audit) ;;
   --version) echo "$WRN_SCRIPT_VERSION"; exit 0 ;;
-  --help|-h) printf 'WRN Maintenance %s\nUsage: sudo bash wrn_maintenance.sh [--diagnose|--preview|--package-preview|--apply|--finalize|--prompt-preview|--version]\n--apply is for supervised pre-production validation only.\n' "$WRN_SCRIPT_VERSION"; exit 0 ;;
+  --help|-h) printf 'WRN Maintenance %s\nUsage: sudo bash wrn_maintenance.sh [--diagnose|--preview|--package-preview|--apply|--finalize|--prompt-preview|--snap-orphan-audit|--dmesg-audit|--version]\n--apply is for supervised pre-production validation only.\n' "$WRN_SCRIPT_VERSION"; exit 0 ;;
   *) echo 'Usage: --diagnose, --preview, --package-preview, --apply, --finalize, --prompt-preview' >&2; exit 2 ;;
 esac
 [[ $EUID -eq 0 ]] || { echo 'Run with sudo' >&2; exit 2; }
@@ -77,7 +77,7 @@ ARCHIVE_MOUNTED='NO'
 if findmnt -rn -M "$ARCHIVE_MOUNT" >/dev/null 2>&1; then ARCHIVE_MOUNTED='YES'; fi
 
 section 'REPORT INFORMATION'
-printf 'UTC: %s\nHostname: %s\nCollector: WRN Maintenance 1.0.0-dev.19-tech-pilot\nOperator: %s\nMode: READ-ONLY\nArchive selected: %s\nSelection method: %s\nArchive mounted at /mnt/sda: %s\n' "$(date -u -Is)" "$HOST" "$OPERATOR" "${ARCHIVE_DEV:-UNRESOLVED}" "${ARCHIVE_MATCH:-not determined}" "$ARCHIVE_MOUNTED" >> "$REPORT"
+printf 'UTC: %s\nHostname: %s\nCollector: WRN Maintenance 1.0.0-dev.19.2-tech-pilot\nOperator: %s\nMode: READ-ONLY\nArchive selected: %s\nSelection method: %s\nArchive mounted at /mnt/sda: %s\n' "$(date -u -Is)" "$HOST" "$OPERATOR" "${ARCHIVE_DEV:-UNRESOLVED}" "${ARCHIVE_MATCH:-not determined}" "$ARCHIVE_MOUNTED" >> "$REPORT"
 run 'OS, KERNEL, TIME, UPTIME' 5 bash -c 'grep -E "^(PRETTY_NAME|VERSION_ID)=" /etc/os-release; printf "Kernel: "; uname -r; printf "Local time: "; date -Is; printf "Boot: "; uptime -s; uptime -p'
 run 'OS DISK CAPACITY' 5 df -hT /
 run 'OS JOURNAL UTILIZATION (READ-ONLY)' 8 bash -c 'journalctl --disk-usage 2>&1; for p in /var/log/journal /run/log/journal; do if [[ -d "$p" ]]; then du -sh "$p" 2>&1; else echo "$p: not present"; fi; done'
@@ -334,7 +334,7 @@ if [[ "$OPERATOR" != root ]]; then
 fi
 chmod 644 "$REPORT"
 chown wave:wave "$REPORT" 2>/dev/null || true
-printf '\n========== WRN MAINTENANCE 1.0.0-dev.19-tech-pilot | DIAGNOSTICS ========\n'
+printf '\n========== WRN MAINTENANCE 1.0.0-dev.19.2-tech-pilot | DIAGNOSTICS ========\n'
 printf 'Host: %s\nReport: %s\n' "$HOST" "$REPORT"
 printf 'OS: '; df -h / | awk 'NR==2 {print $5 " used; " $4 " free"}'
 printf 'Archive: %s (%s)\n' "$ARCHIVE_MOUNTED" "${ARCHIVE_DEV:-UNRESOLVED}"
@@ -606,6 +606,144 @@ snap_active_cleanup_pilot() {
   echo 'Remaining installed Snaps (snapd is deliberately preserved):'
   snap list --all 2>&1 || true
   echo 'ACTIVE SNAP CLEANUP COMPLETE; validate desktop and WAVE client before finalization.'
+}
+
+
+# Automatic post-Snap-removal cleanup. No prompt: this is housekeeping for an
+# already-approved maintenance run. Only remove FAILED, INACTIVE snap mount
+# definitions that reference a missing image and an entirely uninstalled Snap.
+# Never touch active mounts, registered Snap packages, snapd itself or user data.
+# A read-only --snap-orphan-audit mode uses exactly the same eligibility rules.
+snap_orphan_cleanup() {
+  local mode="${1:-audit}" unit fragment what where snap_name revision
+  local snap_output candidates=() skipped=0 found=0 original backup state path
+  local safe_regex='^/snap/([a-z0-9][a-z0-9-]*)/([0-9]+)$'
+  echo "=== SNAP ORPHAN UNIT CLEANUP ($mode) ==="
+  command -v snap >/dev/null 2>&1 || { echo 'SKIP: snap CLI unavailable'; return 0; }
+  command -v systemctl >/dev/null 2>&1 || { echo 'STOP: systemctl unavailable'; return 1; }
+  # Do NOT interpret arbitrary CLI errors as an empty installed Snap registry.
+  snap_output="$(timeout -k 2s 20s snap list --all 2>&1)" || {
+    echo 'STOP: Snap registry unavailable; cannot safely identify orphans'; return 1;
+  }
+  if [[ $snap_output != Name\ * && $snap_output != *'No snaps are installed yet'* ]]; then
+    echo 'STOP: unexpected snap list response; no orphan changes'; return 1
+  fi
+  while IFS= read -r unit; do
+    [[ $unit == snap-*.mount ]] || continue
+    ((found+=1))
+    fragment="$(systemctl show "$unit" -p FragmentPath --value 2>/dev/null)" || return 1
+    what="$(systemctl show "$unit" -p What --value 2>/dev/null)" || return 1
+    where="$(systemctl show "$unit" -p Where --value 2>/dev/null)" || return 1
+    if [[ $fragment != "/etc/systemd/system/$unit" || ! -f $fragment || -L $fragment || ! $where =~ $safe_regex ]]; then
+      echo "REVIEW: $unit (unexpected unit definition/path)"; ((skipped+=1)); continue
+    fi
+    snap_name="${BASH_REMATCH[1]}"; revision="${BASH_REMATCH[2]}"
+    if [[ $what != "/var/lib/snapd/snaps/${snap_name}_${revision}.snap" ]]; then
+      echo "REVIEW: $unit (Snap image does not match mount location)"; ((skipped+=1)); continue
+    fi
+    if [[ -e $what || -L $what ]] || findmnt -rn -M "$where" >/dev/null 2>&1; then
+      echo "PRESERVE: $unit (image exists or mount is active)"; ((skipped+=1)); continue
+    fi
+    # Preserve ANY revision if its snap name is still registered. This is stricter
+    # than merely proving that one particular disabled revision is absent.
+    if awk -v n="$snap_name" 'NR>1 && $1==n {exists=1} END {exit !exists}' <<< "$snap_output"; then
+      echo "PRESERVE: $unit (Snap $snap_name is registered)"; ((skipped+=1)); continue
+    fi
+    if [[ $(systemctl show "$unit" -p ActiveState --value 2>/dev/null) != failed ]]; then
+      echo "PRESERVE: $unit (not in failed state)"; ((skipped+=1)); continue
+    fi
+    echo "ORPHAN: $unit  missing-image=$what"
+    candidates+=("$unit")
+  done < <(systemctl list-units --type=mount --state=failed --plain --no-legend --no-pager 2>/dev/null | awk '$1 ~ /^snap-.*\.mount$/ {print $1}')
+  echo "SNAP ORPHANS: ${#candidates[@]} eligible; $skipped preserved/review; $found failed Snap units inspected"
+  [[ $mode == apply ]] || { echo 'AUDIT ONLY: no units changed'; return 0; }
+  (( ${#candidates[@]} )) || { echo 'PASS: no orphan Snap mount definitions to clean'; return 0; }
+  safe_state || return 1
+  backup="/etc/systemd/wrn-snap-orphan-backups/$(date -u +%Y%m%dT%H%M%SZ)-$$"
+  mkdir -p -m 0700 -- "$backup/units" "$backup/enablement" || return 1
+  printf 'WRN orphan Snap unit backup created %s\n' "$(date -Is)" > "$backup/README.txt"
+  # Keep original unit definitions AND enablement symlinks for recovery.
+  # No shell globs are used for deletion and no files outside /etc/systemd/system
+  # are removed. systemctl disable only removes enablement symlinks for that unit.
+  for unit in "${candidates[@]}"; do
+    original="/etc/systemd/system/$unit"
+    [[ -f $original && ! -L $original ]] || { echo "STOP: changed unit file $unit"; return 1; }
+    [[ $(systemctl show "$unit" -p ActiveState --value) == failed ]] || { echo "STOP: changed mount state $unit"; return 1; }
+    what="$(systemctl show "$unit" -p What --value)"
+    [[ ! -e $what && ! -L $what ]] || { echo "STOP: image appeared for $unit"; return 1; }
+    cp -a -- "$original" "$backup/units/$unit" || return 1
+    for path in /etc/systemd/system/*.wants/"$unit"; do
+      [[ -L $path ]] || continue
+      mkdir -p -- "$backup/enablement/$(basename "$(dirname "$path")")" || return 1
+      cp -a -- "$path" "$backup/enablement/$(basename "$(dirname "$path")")/$unit" || return 1
+    done
+    state="$(systemctl is-enabled "$unit" 2>/dev/null || :)"
+    printf '%s\t%s\n' "$unit" "$state" >> "$backup/README.txt"
+    echo "CLEAN: $unit (backup first; disable, remove orphan unit only)"
+    systemctl disable "$unit" || { echo "STOP: unable to disable $unit"; return 1; }
+    mv -- "$original" "$backup/units/$unit.removed" || { echo "STOP: unable to retire $unit"; return 1; }
+  done
+  # Reset only proven orphan failures while the old names remain addressable.
+  # Do not reset unrelated services such as dmesg or DHCP.
+  systemctl reset-failed "${candidates[@]}" || return 1
+  systemctl daemon-reload || return 1
+  echo "PASS: retired ${#candidates[@]} verified orphan Snap mount units; backup=$backup"
+  echo 'NOTICE: old per-user Snap autostart entries are separate and not removed.'
+}
+
+
+# A failed dmesg.service often represents the factory 3-second timeout from a
+# prior boot. Only retry this one-shot service if the effective manager defaults
+# have already been restored. It writes /var/log/dmesg but never touches WAVE,
+# disk mounts, recording or networking. No reset-failed needed after success.
+# Audit mode is strictly read-only. Failed recovery is WARNING, not a blind reset.
+dmesg_service_recovery() {
+  local mode="${1:-audit}" state load fragment start_timeout stop_timeout
+  local result exec_status status
+  echo "=== DMESG SERVICE RECOVERY ($mode) ==="
+  command -v systemctl >/dev/null 2>&1 || { echo 'WARNING: systemctl unavailable'; return 0; }
+  load="$(systemctl show dmesg.service -p LoadState --value 2>/dev/null || :)"
+  state="$(systemctl show dmesg.service -p ActiveState --value 2>/dev/null || :)"
+  result="$(systemctl show dmesg.service -p Result --value 2>/dev/null || :)"
+  exec_status="$(systemctl show dmesg.service -p ExecMainStatus --value 2>/dev/null || :)"
+  fragment="$(systemctl show dmesg.service -p FragmentPath --value 2>/dev/null || :)"
+  start_timeout="$(systemctl show -p DefaultTimeoutStartUSec --value 2>/dev/null || :)"
+  stop_timeout="$(systemctl show -p DefaultTimeoutStopUSec --value 2>/dev/null || :)"
+  printf 'dmesg: load=%s state=%s result=%s exec_status=%s fragment=%s\n' "$load" "$state" "$result" "$exec_status" "$fragment"
+  printf 'Effective global timeouts: start=%s stop=%s\n' "$start_timeout" "$stop_timeout"
+  if [[ $load != loaded ]]; then
+    echo 'REVIEW: dmesg unit unavailable; no action'; return 0
+  fi
+  if [[ $state != failed ]]; then
+    echo 'PASS: dmesg not failed; no restart required'; return 0
+  fi
+  if [[ $result != timeout ]]; then
+    echo "REVIEW: dmesg failed for reason $result, not known factory timeout; no action"; return 0
+  fi
+  # This pilot only handles the stock 90s service-manager defaults that have
+  # been qualified on these WRNs. Unknown overrides stop the automatic retry.
+  if [[ $start_timeout != '1min 30s' || $stop_timeout != '1min 30s' ]]; then
+    echo 'REVIEW: 90-second effective global timeouts not confirmed; do not retry'; return 0
+  fi
+  if [[ $fragment != /lib/systemd/system/dmesg.service && $fragment != /usr/lib/systemd/system/dmesg.service ]]; then
+    echo 'REVIEW: unexpected dmesg unit path; no action'; return 0
+  fi
+  [[ $mode == apply ]] || { echo 'AUDIT ONLY: eligible for a single guarded service restart; no changes'; return 0; }
+  safe_state || { echo 'WARNING: critical safety guard failed; dmesg retry skipped'; return 0; }
+  echo 'APPLY: retry dmesg.service once under corrected systemd timeouts'
+  if ! timeout -k 5s 110s systemctl restart dmesg.service; then
+    echo 'WARNING: dmesg retry unsuccessful/timed out; original failure evidence retained'
+    systemctl show dmesg.service -p ActiveState -p Result -p ExecMainStatus || :
+    return 0
+  fi
+  state="$(systemctl show dmesg.service -p ActiveState --value 2>/dev/null || :)"
+  result="$(systemctl show dmesg.service -p Result --value 2>/dev/null || :)"
+  exec_status="$(systemctl show dmesg.service -p ExecMainStatus --value 2>/dev/null || :)"
+  if [[ $state != failed && $result == success && $exec_status == 0 ]]; then
+    echo "PASS: dmesg.service completed successfully; state=$state (inactive is normal for oneshot)"
+  else
+    echo "WARNING: dmesg restart exited but final status unexpected: state=$state result=$result exec=$exec_status"
+  fi
 }
 
 run_preview() {
@@ -1063,6 +1201,10 @@ run_apply() {
   safe_state || return 1
   snap_active_cleanup_pilot || return 1
   safe_state || return 1
+  snap_orphan_cleanup apply || return 1
+  safe_state || return 1
+  dmesg_service_recovery apply
+  safe_state || return 1
   echo '=== FINAL FREE SPACE ==='; df -h /
   record_service_history "$INITIAL_SPACE" "$(df -h / | awk 'NR==2{print $5 " used, " $4 " free"}')" 0 || return 1
   echo "PERMANENT HISTORY UPDATED — $WRN_DIR/WRN-Service-History.txt"
@@ -1081,6 +1223,10 @@ elif [[ "$MODE" == --finalize ]]; then
   finalize_visit
 elif [[ "$MODE" == --prompt-preview ]]; then
   tech_prompt_preview
+elif [[ "$MODE" == --snap-orphan-audit ]]; then
+  snap_orphan_cleanup audit
+elif [[ "$MODE" == --dmesg-audit ]]; then
+  dmesg_service_recovery audit
 elif [[ "$MODE" == --diagnose ]]; then
   collect_diagnostics
 elif [[ "$MODE" == --preview ]]; then
