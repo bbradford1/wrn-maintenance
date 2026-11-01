@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# WRN Maintenance 1.0.0-dev.19.6-tech-pilot - PRE-PRODUCTION / LAB ONLY
+# WRN Maintenance 1.0.0 - supervised Gen 2 release
 # Ubuntu 22.04. --diagnose and --preview are read-only; --apply performs conditional maintenance.
 # No WAVE/network restart, remount, fsck, reboot, or video cleanup.
-WRN_SCRIPT_VERSION='1.0.0-dev.19.6-tech-pilot'
+WRN_SCRIPT_VERSION='1.0.0'
 MODE="${1:---diagnose}"
 [[ $# -le 1 ]] || { echo 'Only one option permitted' >&2; exit 2; }
 case "$MODE" in
   --diagnose|--preview|--apply|--package-preview|--tidy-preview|--tidy|--finalize|--prompt-preview|--snap-orphan-audit|--snap-orphan-apply|--dmesg-audit|--dmesg-apply) ;;
   --version) echo "$WRN_SCRIPT_VERSION"; exit 0 ;;
-  --help|-h) printf 'WRN Maintenance %s\nUsage: sudo bash wrn_maintenance.sh [--diagnose|--preview|--package-preview|--apply|--finalize|--prompt-preview|--snap-orphan-audit|--snap-orphan-apply|--dmesg-audit|--dmesg-apply|--version]\n--apply is for supervised pre-production validation only.\n' "$WRN_SCRIPT_VERSION"; exit 0 ;;
+  --help|-h) printf 'WRN Maintenance %s\nUsage: sudo bash wrn_maintenance.sh [--diagnose|--preview|--package-preview|--apply|--finalize|--prompt-preview|--snap-orphan-audit|--snap-orphan-apply|--dmesg-audit|--dmesg-apply|--version]\n--apply makes guarded system changes; use only on authorized WRNs with a technician present.\n' "$WRN_SCRIPT_VERSION"; exit 0 ;;
   *) echo 'Usage: --diagnose, --preview, --package-preview, --apply, --finalize, --prompt-preview' >&2; exit 2 ;;
 esac
 [[ $EUID -eq 0 ]] || { echo 'Run with sudo' >&2; exit 2; }
@@ -106,7 +106,7 @@ archive_status_summary() {
 }
 
 section 'REPORT INFORMATION'
-printf 'UTC: %s\nHostname: %s\nCollector: WRN Maintenance 1.0.0-dev.19.6-tech-pilot\nOperator: %s\nMode: READ-ONLY\nArchive selected: %s\nSelection method: %s\nArchive mounted at /mnt/sda: %s\n' "$(date -u -Is)" "$HOST" "$OPERATOR" "${ARCHIVE_DEV:-UNRESOLVED}" "${ARCHIVE_MATCH:-not determined}" "$ARCHIVE_MOUNTED" >> "$REPORT"
+printf 'UTC: %s\nHostname: %s\nCollector: WRN Maintenance 1.0.0\nOperator: %s\nMode: READ-ONLY\nArchive selected: %s\nSelection method: %s\nArchive mounted at /mnt/sda: %s\n' "$(date -u -Is)" "$HOST" "$OPERATOR" "${ARCHIVE_DEV:-UNRESOLVED}" "${ARCHIVE_MATCH:-not determined}" "$ARCHIVE_MOUNTED" >> "$REPORT"
 run 'OS, KERNEL, TIME, UPTIME' 5 bash -c 'grep -E "^(PRETTY_NAME|VERSION_ID)=" /etc/os-release; printf "Kernel: "; uname -r; printf "Local time: "; date -Is; printf "Boot: "; uptime -s; uptime -p'
 run 'OS DISK CAPACITY' 5 df -hT /
 run 'OS JOURNAL UTILIZATION (READ-ONLY)' 8 bash -c 'journalctl --disk-usage 2>&1; for p in /var/log/journal /run/log/journal; do if [[ -d "$p" ]]; then du -sh "$p" 2>&1; else echo "$p: not present"; fi; done'
@@ -365,7 +365,7 @@ if [[ "$OPERATOR" != root ]]; then
 fi
 chmod 644 "$REPORT"
 chown wave:wave "$REPORT" 2>/dev/null || true
-printf '\n========== WRN MAINTENANCE 1.0.0-dev.19.6-tech-pilot | DIAGNOSTICS ========\n'
+printf '\n========== WRN MAINTENANCE 1.0.0 | DIAGNOSTICS ========\n'
 printf 'Host: %s\nReport: %s\n' "$HOST" "$REPORT"
 printf 'OS: '; df -h / | awk 'NR==2 {print $5 " used; " $4 " free"}'
 archive_status_summary
@@ -871,9 +871,15 @@ final_kb_summary() {
   else
     echo 'FAIL KB2: mounted archive and fstab mismatch'; return 1
   fi
-  if grep -Eq '^/dev/sd[b-d][[:space:]]' /etc/fstab; then
-    echo 'WARNING KB2: additional /dev/sdb..sdd fstab entries remain; review for optional bays'
-  fi
+  # Report only configured optional archive bays that are actually unmounted.
+  # The multi-drive helper has already validated mounted archives separately.
+  local optional_bay optional_spec
+  for optional_bay in /mnt/sdb /mnt/sdc /mnt/sdd; do
+    optional_spec="$(awk -v mp="$optional_bay" '$1 !~ /^#/ && $2 == mp {print $1; exit}' /etc/fstab)"
+    if [[ -n "$optional_spec" ]] && ! findmnt -rn -M "$optional_bay" >/dev/null 2>&1; then
+      echo "NOTICE KB2: optional archive $optional_bay is configured ($optional_spec) but not mounted; entry preserved"
+    fi
+  done
   if command -v snap >/dev/null 2>&1; then
     local schedule
     schedule="$(snap refresh --time 2>&1)" || { echo 'WARNING SNAP: refresh hold unverified'; return 1; }

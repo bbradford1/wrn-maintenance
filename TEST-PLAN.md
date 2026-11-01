@@ -1,3 +1,11 @@
+## Release candidate 1.0.0 — final packaging checks (not yet run on hardware)
+
+1. Verify `bash -n` and `sha256sum -c SHA256SUMS.txt` for all packaged shell scripts.
+2. Smoke-test `installer.sh --offline-bundle ABSOLUTE_DIR` from the normal wave user, with complete staged files copied to that directory; do not try default online installation before main merge.
+3. On an approved lab recorder, rerun `--version` and `--diagnose`; verify `1.0.0` plus the mounted-volume summary.
+4. With `/mnt/sdb` mounted, the final KB2 message must not warn about `/mnt/sdb`; it may report neutral notices for configured but unmounted optional `/mnt/sdc`, `/mnt/sdd`.
+5. Perform full PR diff review. Upon merge, verify installer and all helper SHA pins resolve from `main`; then carry out a controlled lab deployment from the production URL before any fleet rollout.
+
 # dev.19 validation plan — lab-only
 
 ## Non-destructive first

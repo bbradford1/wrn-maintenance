@@ -1,3 +1,10 @@
+## 1.0.0 — Proposed production promotion (PR review pending)
+
+- Technician README rewritten as a short, practical help guide, with engineering details moved to `TECHNICAL-GUIDE.md`.
+- The final KB2 operational summary now displays a neutral notice **only for configured, unmounted optional archive bays**; this is a display-only change, not an archive repair change.
+- Standardized release identifier `1.0.0` and prepared production installer source to fetch from `main`; updated SHA-256 pin and manifest.
+- Lab qualification through Test 094 is documented in `PR-REVIEW.md`. The release packaging and final display message still require staged smoke testing and PR approval before merge.
+
 ## dev.19.6 — Multi-drive diagnostic display only (lab release candidate)
 
 - Short `--diagnose` and normal maintenance diagnostic summaries now list all **actually mounted** `/mnt/sda`–`/mnt/sdd` archives, with mount source, filesystem type, RW/RO status and size. The text explicitly avoids equating a mount with healthy recording.
