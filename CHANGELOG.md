@@ -1,3 +1,8 @@
+## dev.19.4 — isolated guarded dmesg retry (LAB TEST)
+
+- Added `--dmesg-apply` engineering-only entry point to the existing guarded recovery function. It does not invoke full maintenance. Run after `--dmesg-audit`, on authorized systems only.
+- This is not a general-purpose service reset. It requires a historical timeout, stock dmesg unit path, corrected 90s defaults, and maintenance safety guards; it retries once and verifies the result.
+
 ## dev.19.3 — guarded dmesg.service recovery (UNQUALIFIED LAB PILOT)
 
 - During `--apply`, after approved Snap cleanup, inspect a failed `dmesg.service` and retry it **once** only if the failure result is `timeout`, the effective systemd start/stop timeouts are both 90s, and the stock unit file path matches.

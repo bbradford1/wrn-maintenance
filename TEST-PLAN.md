@@ -45,3 +45,6 @@ Seek OEM support confirmation on supported archive relocation paths and reindex 
 3. Confirm test mount absent from failed units; production snapd mount intact; no new errors; WAVE/desktop/SSH/Cockpit/rsyslog active and /mnt/sda mounted rw.
 4. Check second audit shows 0 eligible. Verify backup contains original test unit.
 5. No customer `--snap-orphan-apply` until rollback and lab validation are complete.
+
+
+Dev.19.4 engineering test: `sudo bash wrn_maintenance.sh --dmesg-audit`, then supervised `sudo bash wrn_maintenance.sh --dmesg-apply` only after authorization; no full maintenance rerun.

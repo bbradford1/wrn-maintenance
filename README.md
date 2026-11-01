@@ -68,3 +68,6 @@ Read-only audit, without repeating maintenance: `sudo bash wrn_maintenance.sh --
 
 ### Engineering test mode (dev.19.3; lab only)
 `sudo bash wrn_maintenance.sh --snap-orphan-apply` invokes the same guarded orphan cleanup used automatically in `--apply`, without running other maintenance stages. Use only for supervised lab qualification.
+
+
+Dev.19.4 engineering test: `sudo bash wrn_maintenance.sh --dmesg-audit`, then supervised `sudo bash wrn_maintenance.sh --dmesg-apply` only after authorization; no full maintenance rerun.
