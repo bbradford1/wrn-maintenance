@@ -1,21 +1,16 @@
-# WRN Maintenance Changelog
+# Changelog
 
-## 2026-10-31 — 1.0.0-dev.17-tech-pilot (test branch candidate; NOT field-qualified)
-- Begin guarded Y/N technician workflow in existing Ubuntu 22.04 maintenance engine.
-- Detect exact global systemd 3s/3s override; preview/apply validated timeout helper only after Y, then verify 90s/90s before proceeding.
-- Detect multiple active `/mnt/sda` fstab entries; preview/apply existing guarded dedup helper only after Y; recheck single entry.
-- For unmounted `/mnt/sda`, offer read-only archive inspection and STOP. No automatic archive recovery.
-- Offer cleanup after a successful core maintenance run. Interactive finalization now requires personal confirmation of desktop, new recording and playback, and rejects repeat finalization without a new successful visit.
-- Preserve core archive UUID/60s device/120s mount, Snap, logging, OS cleanup, and package-guard logic from dev.11.
-- Update offline-capable installer with test-branch source URL and pinned SHA-256 for six Ubuntu 22.04 files; Ubuntu 18.04 diagnostic-only retained.
-- Retire obsolete `wrn_downloads_cleanup.sh` from new package; no changes made to GitHub `main`.
-- Known limitation: physical WRN and GitHub branch end-to-end tests still required.
+## 1.0.0-dev.19-tech-pilot — multi-drive and OS spillover analysis (UNTESTED)
 
-## Earlier development
-See the uploaded October 27, 2026 `CHANGELOG.md` for historical pilot notes. This candidate does not rewrite those previously validated helper scripts.
+- Added `wrn_archive_multidrive.sh`: read-only `--audit`, guarded `--apply` normalizes UUID-backed fstab and 60-second device/120-second mount timeouts for each mounted rw ext4 archive `/mnt/sda`–`/mnt/sdd`. Stops on ambiguous/failed or duplicate storage. Does not mount, unmount, fsck, reboot or touch footage.
+- Integrated read-only multi-drive preflight/final audit into technician `wrn_maintenance.sh --apply` and replaced single-drive fstab normalization with the guarded multi-drive helper.
+- Added `wrn_archive_spillover.sh`: scans dated hi/low-quality video directories only on OS filesystem, reports allocated bytes and archive destination free-space margins. `--plan-move` remains read-only.
+- Strengthened the separate OS-recording deletion helper with OS-filesystem guards, protected mounts, active-file detection and mandatory typed interactive approval. Routine maintenance never invokes deletion.
+- Updated installer SHA-256 pins for eight Ubuntu 22.04 scripts, documentation and test plan.
+- **Not yet tested on a live 2/3/4 archive recorder. Do not promote to main.**
 
-## 1.0.0-dev.18-tech-pilot — technician prompt ordering
-- Output end-of-visit verification instructions through the controlling terminal (`/dev/tty`) before the Y/N question.
-- Use the same terminal output for standalone `--finalize` warnings.
-- Add non-mutating `--prompt-preview` so prompt order and both Y/N responses can be verified without reimaging or reapplying maintenance.
-- No changes to core cleanup, filesystem, recovery, or WAVE behavior.
+## dev.18 — verified on Gen 2 single-drive lab
+
+- Unified technician verification notice and prompt output through `/dev/tty`.
+- Added non-destructive `--prompt-preview` to validate both Y and N presentation.
+- Successfully tested from factory image, guided 3-second timeout restoration, OS cleanup and reboot persistence, with recording/playback requiring independent validation.

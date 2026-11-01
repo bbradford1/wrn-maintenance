@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# WRN Maintenance 1.0.0-dev.18-tech-pilot - PRE-PRODUCTION / LAB ONLY
+# WRN Maintenance 1.0.0-dev.19-tech-pilot - PRE-PRODUCTION / LAB ONLY
 # Ubuntu 22.04. --diagnose and --preview are read-only; --apply performs conditional maintenance.
 # No WAVE/network restart, remount, fsck, reboot, or video cleanup.
-WRN_SCRIPT_VERSION='1.0.0-dev.18-tech-pilot'
+WRN_SCRIPT_VERSION='1.0.0-dev.19-tech-pilot'
 MODE="${1:---diagnose}"
 [[ $# -le 1 ]] || { echo 'Only one option permitted' >&2; exit 2; }
 case "$MODE" in
@@ -77,7 +77,7 @@ ARCHIVE_MOUNTED='NO'
 if findmnt -rn -M "$ARCHIVE_MOUNT" >/dev/null 2>&1; then ARCHIVE_MOUNTED='YES'; fi
 
 section 'REPORT INFORMATION'
-printf 'UTC: %s\nHostname: %s\nCollector: WRN Maintenance 1.0.0-dev.18-tech-pilot\nOperator: %s\nMode: READ-ONLY\nArchive selected: %s\nSelection method: %s\nArchive mounted at /mnt/sda: %s\n' "$(date -u -Is)" "$HOST" "$OPERATOR" "${ARCHIVE_DEV:-UNRESOLVED}" "${ARCHIVE_MATCH:-not determined}" "$ARCHIVE_MOUNTED" >> "$REPORT"
+printf 'UTC: %s\nHostname: %s\nCollector: WRN Maintenance 1.0.0-dev.19-tech-pilot\nOperator: %s\nMode: READ-ONLY\nArchive selected: %s\nSelection method: %s\nArchive mounted at /mnt/sda: %s\n' "$(date -u -Is)" "$HOST" "$OPERATOR" "${ARCHIVE_DEV:-UNRESOLVED}" "${ARCHIVE_MATCH:-not determined}" "$ARCHIVE_MOUNTED" >> "$REPORT"
 run 'OS, KERNEL, TIME, UPTIME' 5 bash -c 'grep -E "^(PRETTY_NAME|VERSION_ID)=" /etc/os-release; printf "Kernel: "; uname -r; printf "Local time: "; date -Is; printf "Boot: "; uptime -s; uptime -p'
 run 'OS DISK CAPACITY' 5 df -hT /
 run 'OS JOURNAL UTILIZATION (READ-ONLY)' 8 bash -c 'journalctl --disk-usage 2>&1; for p in /var/log/journal /run/log/journal; do if [[ -d "$p" ]]; then du -sh "$p" 2>&1; else echo "$p: not present"; fi; done'
@@ -334,7 +334,7 @@ if [[ "$OPERATOR" != root ]]; then
 fi
 chmod 644 "$REPORT"
 chown wave:wave "$REPORT" 2>/dev/null || true
-printf '\n========== WRN MAINTENANCE 1.0.0-dev.18-tech-pilot | DIAGNOSTICS ========\n'
+printf '\n========== WRN MAINTENANCE 1.0.0-dev.19-tech-pilot | DIAGNOSTICS ========\n'
 printf 'Host: %s\nReport: %s\n' "$HOST" "$REPORT"
 printf 'OS: '; df -h / | awk 'NR==2 {print $5 " used; " $4 " free"}'
 printf 'Archive: %s (%s)\n' "$ARCHIVE_MOUNTED" "${ARCHIVE_DEV:-UNRESOLVED}"
@@ -935,6 +935,16 @@ tech_prompt() {
 tech_guided_preflight() {
   local start stop count helper
   echo '=== TECHNICIAN GUIDED PREFLIGHT ==='
+  # Read-only detection is useful even when the main archive is offline.
+  if [[ -f "$WRN_DIR/wrn_archive_spillover.sh" && ! -L "$WRN_DIR/wrn_archive_spillover.sh" ]]; then
+    echo '=== OS DRIVE WAVE RECORDING SPILLOVER AUDIT ==='
+    bash "$WRN_DIR/wrn_archive_spillover.sh" --audit || {
+      echo 'STOP: spillover audit incomplete; review OS recording status before proceeding.'
+      return 1
+    }
+  else
+    echo 'STOP: verified OS spillover helper missing'; return 1
+  fi
   if ! findmnt -rn -M /mnt/sda >/dev/null 2>&1; then
     echo 'STOP: Archive /mnt/sda is not mounted. Normal maintenance cannot proceed.'
     helper="$WRN_DIR/wrn_archive_recovery.sh"
@@ -968,22 +978,22 @@ tech_guided_preflight() {
     echo "STOP: unrecognized systemd global timeouts: $start / $stop. Manual review required."
     return 1
   fi
-  count="$(awk '$1 !~ /^#/ && $2 == "/mnt/sda" {n++} END {print n+0}' /etc/fstab)"
-  if [[ "$count" =~ ^[0-9]+$ ]] && (( count > 1 )); then
-    echo "DETECTED: $count active /mnt/sda fstab entries."
+  count="$(awk '$1 !~ /^#/ && $2 ~ /^\/mnt\/sd[a-d]$/ {m[$2]++} END{n=0; for (k in m) if(m[k]>1) n++; print n}' /etc/fstab)"
+  if [[ "$count" =~ ^[0-9]+$ ]] && (( count > 0 )); then
+    echo "DETECTED: $count archive mount points with duplicate fstab entries."
     helper="$WRN_DIR/wrn_fstab_dedup.sh"
     [[ -f "$helper" && ! -L "$helper" ]] || { echo 'STOP: verified fstab dedup helper missing'; return 1; }
     bash "$helper" --preview || { echo 'STOP: fstab dedup preview failed'; return 1; }
     tech_prompt 'Run guarded fstab deduplication now?' || return 1
     bash "$helper" --apply || { echo 'STOP: fstab dedup failed'; return 1; }
     systemctl daemon-reload || return 1
-    count="$(awk '$1 !~ /^#/ && $2 == "/mnt/sda" {n++} END {print n+0}' /etc/fstab)"
-    [[ "$count" == 1 ]] || { echo 'STOP: duplicate archive entries remain'; return 1; }
+    count="$(awk '$1 !~ /^#/ && $2 ~ /^\/mnt\/sd[a-d]$/ {m[$2]++} END{n=0; for(k in m) if(m[k]>1) n++; print n}' /etc/fstab)"
+    [[ "$count" == 0 ]] || { echo 'STOP: duplicate archive entries remain'; return 1; }
     echo 'PASS: fstab duplicate repair verified.'
-  elif [[ "$count" != 1 ]]; then
-    echo "STOP: expected exactly one archive fstab entry, found $count"; return 1
   fi
   safe_state || return 1
+  echo '=== ALL ARCHIVES: READ-ONLY PREFLIGHT ==='
+  bash "$WRN_DIR/wrn_archive_multidrive.sh" --audit || return 1
   echo 'PASS: guided preflight complete; core maintenance may proceed.'
 }
 
@@ -1030,7 +1040,9 @@ run_apply() {
   safe_state || return 1
   logging_kb || return 1
   safe_state || return 1
-  fstab_kb || return 1
+  echo '=== ALL MOUNTED ARCHIVES: GUARDED UUID/TIMEOUT NORMALIZATION ==='
+  [[ -f "$WRN_DIR/wrn_archive_multidrive.sh" && ! -L "$WRN_DIR/wrn_archive_multidrive.sh" ]] || { echo 'STOP: verified multi-drive helper missing'; return 1; }
+  bash "$WRN_DIR/wrn_archive_multidrive.sh" --apply || return 1
   safe_state || return 1
   snap_cleanup || return 1
   safe_state || return 1
@@ -1040,6 +1052,8 @@ run_apply() {
   collect_diagnostics || return 1
   safe_state || return 1
   final_kb_summary || return 1
+  echo '=== MULTI-DRIVE FINAL VERIFICATION ==='
+  bash "$WRN_DIR/wrn_archive_multidrive.sh" --audit || return 1
   echo '=== GUARDED OPTIONAL SOFTWARE STAGES ==='
   APP_RESULT=skipped
   LEFT_RESULT=skipped

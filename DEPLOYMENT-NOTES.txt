@@ -1,35 +1,9 @@
-WRN 1.0.0-dev.17-tech-pilot — LAB ONLY — 2026-10-31
+Dev.19 is a LAB PILOT. DO NOT APPLY TO THE SEVEN BREW FLEET OR PROMOTE TO main.
 
-GitHub branch to create: technician-workflow-pilot
-DO NOT publish on main until physical WRN tests and reboot pass.
-
-Upload the individual files at the top level of the GitHub branch, not the ZIP or TAR.GZ:
-  installer.sh
-  wrn_maintenance.sh
-  wrn_legacy.sh
-  wrn_systemd_timeout_restore.sh
-  wrn_fstab_dedup.sh
-  wrn_archive_recovery.sh
-  wrn_os_archive_cleanup.sh
-  wrn_remaining_os_space.sh
-  README.md, CHANGELOG.md, DEPLOYMENT-NOTES.txt, TEST-PLAN.md, SHA256SUMS.txt
-
-The following obsolete file is intentionally NOT in this release:
-  wrn_downloads_cleanup.sh
-
-TEST BRANCH COMMAND (after branch upload):
-  wget -qO- https://raw.githubusercontent.com/bbradford1/wrn-maintenance/technician-workflow-pilot/installer.sh | bash
-  cd /home/wave/Downloads/maintenance
-  sudo bash wrn_maintenance.sh --apply
-
-For local pilot, use --offline-bundle with the extracted directory (no GitHub), or
---local-source and --target-dir for a separate staging location.
-
-Stop on installer checksum failure; upload matching installer and scripts together.
-Preserve backups and reports when guided repair stops. Recording deletion is never automatic.
-A normal technician must independently verify the desktop, new recording and playback
-before confirming finalization; N retains all diagnostic artifacts.
-
-Do not upload field reports, server history or customer identifiers to a public GitHub repo.
-
-DEV.18: Prompt-order adjustment only plus a non-mutating --prompt-preview mode. Do not repeat --apply solely to test the prompt. Do not run --finalize without verified new recording and playback.
+Installer from test branch downloads eight checked scripts on Ubuntu 22.04.
+Single-drive dev.18 already tested; new multi-drive and spillover changes require lab validation.
+No automatic recording migration or deletion is included in the guided workflow.
+OS recording video can be indexed to its original filesystem by WAVE; moving without an appropriate reindex may destroy timeline accessibility.
+Recordings on nearly-full archive disks are NOT safely movable just because `df` reports a few dozen GB available. They may be in WAVE's reserved space and actively recycled.
+Maintain customer consent and an independent recording/playback check for any future manual archive relocation or cleanup. Retain logs on all error paths.
+Ubuntu 18.04: diagnostic-only helper wrn_legacy.sh.
