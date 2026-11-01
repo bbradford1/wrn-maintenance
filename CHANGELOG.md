@@ -1,4 +1,4 @@
-## dev.19.2 — guarded dmesg.service recovery (UNQUALIFIED LAB PILOT)
+## dev.19.3 — guarded dmesg.service recovery (UNQUALIFIED LAB PILOT)
 
 - During `--apply`, after approved Snap cleanup, inspect a failed `dmesg.service` and retry it **once** only if the failure result is `timeout`, the effective systemd start/stop timeouts are both 90s, and the stock unit file path matches.
 - Success requires systemctl restart success plus `Result=success`, `ExecMainStatus=0`, and no failed state. A normally inactive oneshot service is accepted. Failure is reported but never hidden using `reset-failed`. DHCP units remain unchanged.
@@ -27,3 +27,8 @@
 - Unified technician verification notice and prompt output through `/dev/tty`.
 - Added non-destructive `--prompt-preview` to validate both Y and N presentation.
 - Successfully tested from factory image, guided 3-second timeout restoration, OS cleanup and reboot persistence, with recording/playback requiring independent validation.
+
+## dev.19.3 — Test 072D isolated orphan cleanup
+- Adds `--snap-orphan-apply`, an engineering-only standalone entry point into the same guarded `snap_orphan_cleanup apply` used by regular `--apply`. No full maintenance, package removal, archive repair or finalization.
+- `--snap-orphan-audit` remains read-only and does not alter unit state. Normal `--apply` still performs orphan housekeeping automatically without a new prompt.
+- Use only on expendable lab WRN until qualified. Test the synthetic `snap-wrntest-99999.mount` orphan, verify backup and failure-state removal, preserve installed snapd, WAVE and archives.

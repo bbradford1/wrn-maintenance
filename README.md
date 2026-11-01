@@ -62,6 +62,9 @@ After the normal approved Snap removal stage, `--apply` automatically detects an
 
 Read-only audit, without repeating maintenance: `sudo bash wrn_maintenance.sh --snap-orphan-audit`. This candidate has **not** been validated with real failed orphan units; do not run `--apply` on a customer recorder until lab qualification.
 
-### dev.19.2 dmesg one-shot recovery
+### dev.19.3 dmesg one-shot recovery
 
 `sudo bash wrn_maintenance.sh --dmesg-audit` inspects eligibility without changes. During `--apply` the script will retry `dmesg.service` once only for a previously failed timeout after the effective global timeouts are verified at 90 seconds. A successful one-shot service may appear inactive/dead; `Result=success` is the key. No DHCP service is changed and no failed state is blindly reset.
+
+### Engineering test mode (dev.19.3; lab only)
+`sudo bash wrn_maintenance.sh --snap-orphan-apply` invokes the same guarded orphan cleanup used automatically in `--apply`, without running other maintenance stages. Use only for supervised lab qualification.

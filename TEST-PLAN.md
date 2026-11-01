@@ -32,9 +32,16 @@ Seek OEM support confirmation on supported archive relocation paths and reindex 
 5. Validate backup restoration/recovery, idempotence and reboot behavior.
 6. Do not run `--apply` on a customer WRN until those lab conditions have passed.
 
-### Test 070B — dmesg recovery candidate (dev.19.2)
+### Test 070B — dmesg recovery candidate (dev.19.3)
 
 1. Confirm `--dmesg-audit` is read-only on healthy lab WRN and on a WRN with old `Result=timeout`.
 2. In isolated mocks exercise healthy (`inactive/success`), timeout with 3s defaults (skip), timeout with 90s defaults (one restart), non-timeout failure (skip), unexpected unit path (skip), and restart failure (report without `reset-failed`).
 3. On an expendable lab, intentionally exercise the actual single-service recovery under controlled conditions; verify `Result=success`, no WAVE/archive impact, and reboot persistence. Do not induce errors on a customer recorder.
 4. Only after lab qualification, conduct a supervised pilot on a permitted WRN; do not touch DHCP services.
+
+## Test 072D — standalone guarded orphan apply (lab only)
+1. Confirm `--snap-orphan-audit` reports only `snap-wrntest-99999.mount` eligible.
+2. Use `sudo bash wrn_maintenance.sh --snap-orphan-apply` on **lab only**. Record backup location.
+3. Confirm test mount absent from failed units; production snapd mount intact; no new errors; WAVE/desktop/SSH/Cockpit/rsyslog active and /mnt/sda mounted rw.
+4. Check second audit shows 0 eligible. Verify backup contains original test unit.
+5. No customer `--snap-orphan-apply` until rollback and lab validation are complete.
